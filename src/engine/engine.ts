@@ -509,7 +509,7 @@ export class CoiiEngine implements EngineApi {
     app.canvas.setAttribute("role", "img");
     app.canvas.setAttribute(
       "aria-label",
-      "Live map of the venue: topic booths with attendees moving around them. Use the People list for an accessible view.",
+      "Live Mumbai-themed venue map: topic booths with attendees moving around them. Use the People list for an accessible view.",
     );
     this.root.prepend(app.canvas);
 

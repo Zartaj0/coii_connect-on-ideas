@@ -1,6 +1,7 @@
 import { CanvasSource, Container, Graphics, Sprite, Text, Texture, TilingSprite } from "pixi.js";
 
 import { TOPICS } from "@/data/topics";
+import { buildMumbaiBackdrop } from "@/engine/mumbaiBackdrop";
 import {
   FLOOR,
   FLOOR_LINE,
@@ -76,6 +77,7 @@ export function buildFloor(layout: VenueLayout): Container {
     height: layout.height,
   });
   floor.addChild(tiles);
+  floor.addChild(buildMumbaiBackdrop(layout));
 
   const g = new Graphics();
   const plaza = layout.zones[layout.plazaIndex] as Zone;
