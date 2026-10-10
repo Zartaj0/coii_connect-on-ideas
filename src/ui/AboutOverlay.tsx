@@ -22,7 +22,7 @@ const FEATURES: readonly Feature[] = [
   {
     icon: "waving_hand",
     title: "Wave and earn wave points",
-    text: "To connect with someone, you wave first. When someone waves at you, you earn a wave point. The more wave points, the higher you rank on the coii leaderboard, so you're popular before the event even starts.",
+    text: "Wave to connect. Every wave you get is a point that climbs you up the coii leaderboard.",
   },
   {
     icon: "sparkles",
@@ -86,7 +86,7 @@ function Features() {
   return (
     <section aria-labelledby={headingId}>
       <h3 id={headingId} className="about__h">
-        What you can do
+        With coii you can:
       </h3>
       <ul className="about__features">
         {FEATURES.map((f) => (
