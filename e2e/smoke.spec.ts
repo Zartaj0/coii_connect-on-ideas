@@ -532,3 +532,30 @@ test("adda: drag someone onto your tent, wave + add, and they fall in", async ({
   expect(waved).toContain(members[0]?.personId);
   expect(errors).toEqual([]);
 });
+
+test("a shared /join link opens the join form with its booth picked", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/join/defi?still");
+  const dialog = page.getByRole("dialog", { name: "Join coii" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /DeFi/, pressed: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/\?still$/);
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: "Join coii" })).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test("?join opens the form too, and About hands out the join link", async ({ page }) => {
+  await page.goto("/?still&join");
+  await expect(page.getByRole("dialog", { name: "Join coii" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "About" }).click();
+  await page.getByRole("button", { name: "Invite friends" }).click();
+  const invite = page.getByRole("dialog", { name: "Invite people to coii" });
+  await expect(invite).toBeVisible();
+  await expect(invite.getByLabel("Join link")).toHaveValue("https://coii.decipherclub.com/join");
+  await invite.getByLabel("Start them at a booth").selectOption("privacy");
+  await expect(invite.getByLabel("Join link")).toHaveValue(
+    "https://coii.decipherclub.com/join/privacy",
+  );
+});

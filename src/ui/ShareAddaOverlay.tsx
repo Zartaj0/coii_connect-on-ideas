@@ -18,6 +18,7 @@ import {
 import type { CardFace } from "@/ui/addaShare";
 import { Glyph, Icon } from "@/ui/Icon";
 import { CloseButton, Overlay } from "@/ui/Overlay";
+import { copyText } from "@/ui/shareLinks";
 
 interface Card {
   readonly file: File;
@@ -77,15 +78,6 @@ function download(card: Card): void {
 function canShareFiles(file: File): boolean {
   try {
     return typeof navigator.canShare === "function" && navigator.canShare({ files: [file] });
-  } catch {
-    return false;
-  }
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
   } catch {
     return false;
   }

@@ -69,7 +69,8 @@ join, and you can put them anywhere outside the ring of booths.
 - Header in the adda's colour with its name and "N people meeting at Devcon 8 · Mumbai"; footer
   with the coii wordmark and `coii.decipherclub.com`.
 - Text: "Check out my adda on coii 🎪 These are the people I'm meeting at Devcon 8, Mumbai:
-  https://coii.decipherclub.com".
+  https://coii.decipherclub.com/join". The link is the join link (docs/prd/join-link.md), so
+  whoever taps it lands on the join form.
 - Buttons:
   - **Share picture + text** (browsers that can share files, mainly phones): the system share
     sheet, so X, LinkedIn, Telegram, WhatsApp and the rest get the picture and the text in one

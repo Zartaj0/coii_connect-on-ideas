@@ -156,6 +156,13 @@ function Footer({ onClose }: { readonly onClose: () => void }) {
         <button type="button" className="btn btn--secondary" onClick={onClose}>
           Explore the map
         </button>
+        <button
+          type="button"
+          className="btn btn--secondary"
+          onClick={() => actions.openOverlay("invite")}
+        >
+          Invite friends
+        </button>
       </div>
       <p className="about__love">
         <strong>With love, from Decipher Club</strong>

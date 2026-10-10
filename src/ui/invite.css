@@ -1,0 +1,35 @@
+/* ---- Invite: a shareable join link -------------------------------------------------------------- */
+
+.overlay--invite {
+  --overlay-w: 560px;
+}
+
+.invite__link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.invite__link input,
+.invite__booth select {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px 14px 6px;
+  border: var(--line-thin);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+}
+
+.invite__booth {
+  display: grid;
+  gap: 6px;
+}
+
+.invite__booth label {
+  font-family: var(--font-display);
+  font-weight: 800;
+}

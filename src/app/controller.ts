@@ -49,6 +49,11 @@ export interface AppController {
   startArrivals(source: PeopleSource): () => void;
   /** Starts the demo crowd waving at each other (live wave points); returns a stop function. */
   startDemoWaves(): () => void;
+  /**
+   * Someone opened a shared join link: the join form opens straight away (with the booth the
+   * link names), or your profile if you've already joined in this browser.
+   */
+  openJoinLink(topic: TopicId | null): void;
 }
 
 export interface ControllerOptions {
@@ -395,5 +400,13 @@ export function createController(engine: EngineApi, options: ControllerOptions):
       });
     },
     startDemoWaves: points.startDemoWaves,
+    openJoinLink(topic) {
+      if (!store.get().you) {
+        actions.startJoin(topic);
+        return;
+      }
+      actions.openOverlay("you");
+      actions.pushToast("You're already on coii. Here's your bean.", "waving_hand", "info");
+    },
   };
 }
