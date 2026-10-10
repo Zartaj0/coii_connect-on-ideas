@@ -112,6 +112,13 @@ function spotDistance(zs: ZoneSpots, spot: number, near: Near): number {
   return Math.hypot(dx, dy);
 }
 
+function shiftSpots(spots: Float32Array, dx: number, dy: number): void {
+  for (let i = 0; i < spots.length; i += 2) {
+    spots[i] = (spots[i] ?? 0) + dx;
+    spots[i + 1] = (spots[i + 1] ?? 0) + dy;
+  }
+}
+
 export interface WorldOptions {
   readonly seed: number;
   /** Spot count per zone, same order as `layout.zones`. */
@@ -126,6 +133,8 @@ export class World {
   time = 0;
   reducedMotion: boolean;
   private readonly grid: SpatialGrid;
+  /** The layout's zones; adda plots move (see `placeZone`), so the world keeps its own copy. */
+  readonly zones: Zone[];
   private readonly zoneSpots: ZoneSpots[];
   /** Spots in use per zone, counted from the centre out; the adda plot grows with its crowd. */
   private readonly spotLimit: number[];
@@ -145,6 +154,7 @@ export class World {
     this.rng = createRng(options.seed);
     this.reducedMotion = options.reducedMotion ?? false;
     this.grid = new SpatialGrid(32, layout.width, layout.height, 2048);
+    this.zones = [...layout.zones];
     this.zoneSpots = layout.zones.map((zone, i) => {
       const wanted = zone.kind === "adda" ? ADDA_SPOTS : (options.capacities[i] ?? 40);
       const count = Math.max(8, Math.round(wanted));
@@ -154,6 +164,35 @@ export class World {
       };
     });
     this.spotLimit = this.zoneSpots.map((zs) => zs.occupant.length);
+  }
+
+  /**
+   * Moves an adda plot (and turns its tent's obstacle on or off). Its crowd walks over to the
+   * same spots around the new centre.
+   */
+  placeZone(zoneIndex: number, zone: Zone): void {
+    const old = this.zones[zoneIndex];
+    const zs = this.zoneSpots[zoneIndex];
+    if (!old || !zs) return;
+    this.zones[zoneIndex] = zone;
+    const dx = zone.x - old.x;
+    const dy = zone.y - old.y;
+    if (dx === 0 && dy === 0) return;
+    shiftSpots(zs.spots, dx, dy);
+    for (const a of this.agents) {
+      if (a.active && a.zone === zoneIndex) this.followZone(a, dx, dy);
+    }
+  }
+
+  /** A plot moved under this agent: walk to its spot again, or simply move along when far. */
+  private followZone(a: Agent, dx: number, dy: number): void {
+    a.tx += dx;
+    a.ty += dy;
+    if (a.state === State.Grabbed || a.state === State.Thrown || a.state === State.Held) return;
+    this.endChat(a);
+    this.route(a);
+    a.state = State.RunningHome;
+    a.moving = true;
   }
 
   /** Only the innermost `count` spots of a zone are handed out from now on. */
@@ -298,6 +337,20 @@ export class World {
     a.state = State.Thrown;
   }
 
+  /** Lifts an agent into the air so it falls, bounces and lands (someone joining an adda). */
+  dropFromSky(index: number, height: number): void {
+    const a = this.agent(index);
+    if (!a.active) return;
+    this.endChat(a);
+    a.z = height;
+    a.vz = 0;
+    a.vx = 0;
+    a.vy = 0;
+    a.airTime = 0;
+    a.moving = false;
+    a.state = State.Thrown;
+  }
+
   /** Make an agent stop and wave (used when someone locates them). */
   /**
    * Two people walk up to each other and share a long chat ("Chai's on!"). A `clink` event is
@@ -326,7 +379,7 @@ export class World {
 
   /** Keeps a meeting point out of booth obstacles. */
   private pushTargetOut(a: Agent): void {
-    for (const zone of this.layout.zones) {
+    for (const zone of this.zones) {
       const o = zone.obstacle;
       const dx = a.tx - o.x;
       const dy = a.ty - o.y;
@@ -580,7 +633,7 @@ export class World {
 
   private pushOutOfObstacles(a: Agent): boolean {
     let hit = false;
-    for (const zone of this.layout.zones) {
+    for (const zone of this.zones) {
       const o = zone.obstacle;
       const dx = a.x - o.x;
       const dy = a.y - o.y;
@@ -605,8 +658,8 @@ export class World {
 
   private route(a: Agent): void {
     a.hasWaypoint = false;
-    const target = this.layout.zones[a.zone];
-    for (const zone of this.layout.zones) {
+    const target = this.zones[a.zone];
+    for (const zone of this.zones) {
       if (zone === target) continue;
       if (segmentHitsCircle(a.x, a.y, a.tx, a.ty, zone.obstacle)) {
         this.setPlazaWaypoint(a);
@@ -616,7 +669,7 @@ export class World {
   }
 
   private setPlazaWaypoint(a: Agent): void {
-    const plaza = this.layout.zones[this.layout.plazaIndex] as Zone;
+    const plaza = this.zones[this.layout.plazaIndex] as Zone;
     const dx = a.tx - plaza.x;
     const dy = a.ty - plaza.y;
     const len = Math.hypot(dx, dy) || 1;
@@ -777,7 +830,7 @@ export class World {
   private claimSpot(index: number, zoneIndex: number, near: Near | null = null): void {
     const a = this.agent(index);
     const zs = this.zoneSpots[zoneIndex];
-    const zone = this.layout.zones[zoneIndex];
+    const zone = this.zones[zoneIndex];
     if (!zs || !zone) throw new Error(`Zone ${zoneIndex} does not exist`);
     const spot = this.findFreeSpot(zs, near, this.spotLimit[zoneIndex] ?? zs.occupant.length);
     a.spot = spot;

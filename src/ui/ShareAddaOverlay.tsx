@@ -1,16 +1,18 @@
 import "@/ui/adda.css";
 import { useEffect, useId, useMemo, useState } from "react";
 
+import type { MyAdda } from "@/adda/storage";
 import { useActions, useApp } from "@/app/context";
-import type { AddaView } from "@/app/store";
+import type { AppState } from "@/app/store";
 import { canvasToBlob, drawAddaCard } from "@/ui/addaCard";
 import {
   cardFaces,
   cardFileName,
   linkedInShareUrl,
   namesText,
+  SHARE_TEXT,
   shareCaption,
-  shareTitle,
+  telegramShareUrl,
   xIntentUrl,
 } from "@/ui/addaShare";
 import type { CardFace } from "@/ui/addaShare";
@@ -22,20 +24,37 @@ interface Card {
   readonly url: string;
 }
 
+function sharedAdda(s: AppState): MyAdda | null {
+  return s.adda?.addas.find((a) => a.id === s.shareAddaId) ?? null;
+}
+
+/**
+ * The faces on the card, as a value that only changes when the crew does: people arriving on
+ * the map or points ticking up must not redraw the image.
+ */
+function useFaces(): CardFace[] {
+  const key = useApp((s) => {
+    const adda = sharedAdda(s);
+    return s.you && adda ? JSON.stringify(cardFaces(s.you, adda, s.people)) : "[]";
+  });
+  return useMemo(() => JSON.parse(key) as CardFace[], [key]);
+}
+
 /** Draws the card once per crew and look; frees the preview URL when it changes or closes. */
-function useCard(faces: readonly CardFace[], adda: AddaView | null): Card | "failed" | null {
+function useCard(faces: readonly CardFace[], adda: MyAdda | null): Card | "failed" | null {
   const [card, setCard] = useState<Card | "failed" | null>(null);
   const look = adda?.look ?? null;
+  const title = adda?.name ?? "";
   useEffect(() => {
     if (!look || faces.length === 0) return undefined;
     let url: string | null = null;
     let cancelled = false;
-    drawAddaCard(faces, look)
+    drawAddaCard(title, faces, look)
       .then(canvasToBlob)
       .then((blob) => {
         if (cancelled) return;
         url = URL.createObjectURL(blob);
-        setCard({ file: new File([blob], cardFileName(faces), { type: "image/png" }), url });
+        setCard({ file: new File([blob], cardFileName(title), { type: "image/png" }), url });
       })
       .catch(() => {
         if (!cancelled) setCard("failed");
@@ -44,7 +63,7 @@ function useCard(faces: readonly CardFace[], adda: AddaView | null): Card | "fai
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [faces, look]);
+  }, [faces, look, title]);
   return card;
 }
 
@@ -63,7 +82,7 @@ function canShareFiles(file: File): boolean {
   }
 }
 
-async function copy(text: string): Promise<boolean> {
+async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -72,89 +91,106 @@ async function copy(text: string): Promise<boolean> {
   }
 }
 
-/**
- * The faces on the card, as a value that only changes when the crew does: people arriving on
- * the map or points ticking up must not redraw the image.
- */
-function useFaces(): CardFace[] {
-  const key = useApp((s) =>
-    s.you && s.adda ? JSON.stringify(cardFaces(s.you, s.adda, s.people)) : "[]",
-  );
-  return useMemo(() => JSON.parse(key) as CardFace[], [key]);
+/** Puts the picture on the clipboard, so it pastes straight into a post. */
+async function copyImage(file: File): Promise<boolean> {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": file })]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function ShareButtons({
-  card,
-  faces,
-}: {
-  readonly card: Card;
-  readonly faces: readonly CardFace[];
-}) {
+function pasteKeys(): string {
+  return /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘V" : "Ctrl+V";
+}
+
+/**
+ * Web links can't attach a picture to a post on X, LinkedIn or Telegram, so the composer opens
+ * with the text filled in and the picture goes on the clipboard (or downloads) to paste in.
+ */
+function useOpenComposer(card: Card): (url: string, site: string) => Promise<void> {
   const actions = useActions();
-  const caption = shareCaption(faces);
-  const native = canShareFiles(card.file);
-  const toast = (text: string): void => actions.pushToast(text, "circus_tent", "success");
-  const shareNative = (): void => {
-    navigator
-      .share({ files: [card.file], title: shareTitle(faces), text: caption })
-      .catch(() => undefined);
-  };
-  // X and LinkedIn can't take an image from a link, so the picture is saved to attach by hand.
-  const postTo = async (url: string, site: string): Promise<void> => {
-    download(card);
-    const copied = await copy(caption);
+  return async (url, site) => {
+    const copied = await copyImage(card.file);
+    if (!copied) download(card);
     window.open(url, "_blank", "noopener,noreferrer");
-    toast(`Image saved${copied ? " and caption copied" : ""}. Attach it to your ${site} post.`);
+    const how = copied
+      ? `Picture copied: press ${pasteKeys()} in the post`
+      : "Picture saved: attach it";
+    actions.pushToast(`${how} to add it on ${site}.`, "circus_tent", "success");
+  };
+}
+
+function ShareButtons({ card, title }: { readonly card: Card; readonly title: string }) {
+  const actions = useActions();
+  const open = useOpenComposer(card);
+  const native = canShareFiles(card.file);
+  const shareNative = (): void => {
+    navigator.share({ files: [card.file], title, text: shareCaption() }).catch(() => undefined);
+  };
+  const copyCaption = (): void => {
+    void copyText(shareCaption()).then(
+      (ok) => ok && actions.pushToast("Text copied.", "circus_tent", "success"),
+    );
   };
   return (
     <div className="share-actions">
       {native ? (
         <button type="button" className="btn btn--wave btn--big" onClick={shareNative}>
           <Icon id="circus_tent" size={24} />
-          Share image
+          Share picture + text
         </button>
       ) : null}
       <div className="share-actions__row">
         <button
           type="button"
           className="btn btn--secondary"
-          onClick={() => void postTo(xIntentUrl(caption), "X")}
+          onClick={() => void open(xIntentUrl(), "X")}
         >
-          Post on X
+          Share on X
         </button>
         <button
           type="button"
           className="btn btn--secondary"
-          onClick={() => void postTo(linkedInShareUrl(), "LinkedIn")}
+          onClick={() => void open(linkedInShareUrl(), "LinkedIn")}
         >
-          Post on LinkedIn
-        </button>
-      </div>
-      <div className="share-actions__row">
-        <button type="button" className="btn btn--secondary" onClick={() => download(card)}>
-          Download image
+          Share on LinkedIn
         </button>
         <button
           type="button"
-          className="btn btn--quiet"
-          onClick={() => void copy(caption).then((ok) => ok && toast("Caption copied."))}
+          className="btn btn--secondary"
+          onClick={() => void open(telegramShareUrl(), "Telegram")}
         >
-          Copy caption
+          Share on Telegram
         </button>
       </div>
+      <div className="share-actions__row">
+        <button type="button" className="btn btn--quiet" onClick={() => download(card)}>
+          Download picture
+        </button>
+        <button type="button" className="btn btn--quiet" onClick={copyCaption}>
+          Copy text
+        </button>
+      </div>
+      <p className="share__caption">“{SHARE_TEXT}” + link</p>
     </div>
   );
 }
 
 function CardPreview({
   card,
+  title,
   faces,
 }: {
   readonly card: Card | "failed" | null;
+  readonly title: string;
   readonly faces: readonly CardFace[];
 }) {
   if (card === "failed") {
-    return <p className="empty-note">This browser couldn't draw the image. Try another browser.</p>;
+    return (
+      <p className="empty-note">This browser couldn't draw the picture. Try another browser.</p>
+    );
   }
   if (!card) {
     return (
@@ -164,10 +200,10 @@ function CardPreview({
     );
   }
   const names = namesText(faces.map((f) => f.name));
-  return <img className="share-card" src={card.url} alt={`${shareTitle(faces)}: ${names}`} />;
+  return <img className="share-card" src={card.url} alt={`${title}: ${names}`} />;
 }
 
-/** "Share my adda": a picture of your crew's faces and names, ready for X, LinkedIn or anywhere. */
+/** "Share": a picture of one adda's crew around you, ready for X, LinkedIn or Telegram. */
 export function ShareAddaOverlay({
   leaving,
   onClose,
@@ -176,24 +212,25 @@ export function ShareAddaOverlay({
   readonly onClose: () => void;
 }) {
   const titleId = useId();
-  const adda = useApp((s) => s.adda);
+  const adda = useApp(sharedAdda);
   const faces = useFaces();
   const card = useCard(faces, adda);
+  const title = adda?.name ?? "";
   return (
     <Overlay kind="share" labelledBy={titleId} leaving={leaving} onClose={onClose}>
       <div className="overlay__scroll share">
         <header className="share__head">
           <CloseButton onClose={onClose} />
           <h2 id={titleId} className="share__title">
-            Share your adda
+            Share {title}
           </h2>
           <p className="share__hint">
             <Glyph name="check" size={16} />
             Only you and people who said yes are in the picture, with their names. No handles.
           </p>
         </header>
-        <CardPreview card={card} faces={faces} />
-        {card && card !== "failed" ? <ShareButtons card={card} faces={faces} /> : null}
+        <CardPreview card={card} title={title} faces={faces} />
+        {card && card !== "failed" ? <ShareButtons card={card} title={title} /> : null}
       </div>
     </Overlay>
   );

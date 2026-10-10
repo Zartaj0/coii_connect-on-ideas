@@ -1,4 +1,4 @@
-import type { AddaView } from "@/app/store";
+import type { MyAdda } from "@/adda/storage";
 import type { Avatar, Person, TopicId } from "@/data/types";
 
 /** Where people land from a shared card. */
@@ -17,7 +17,7 @@ export interface CardFace {
  * Who goes on the card: you, then everyone who said yes, in the order they joined the list.
  * Invitees who haven't answered (or said no) are left out: they never agreed to be shown.
  */
-export function cardFaces(you: Person, adda: AddaView, people: readonly Person[]): CardFace[] {
+export function cardFaces(you: Person, adda: MyAdda, people: readonly Person[]): CardFace[] {
   const byId = new Map(people.map((p) => [p.id, p]));
   const joined = adda.members
     .filter((m) => m.status === "joined")
@@ -33,27 +33,91 @@ export function cardFaces(you: Person, adda: AddaView, people: readonly Person[]
   }));
 }
 
-export interface Grid {
-  readonly cols: number;
-  readonly rows: number;
-  /** Width of one cell; a cell is `CELL_ASPECT` times as tall, for the face and the name. */
+/** Height of a face cell over its width: a round face with a name under it. */
+export const CELL_ASPECT = 1.3;
+
+export interface Box {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+export interface Placed {
+  /** Centre of the face cell. */
+  readonly x: number;
+  readonly y: number;
+  /** Cell width; the cell is `CELL_ASPECT` times as tall. */
   readonly cell: number;
 }
 
-/** Height of a cell over its width: a round face with a name under it. */
-export const CELL_ASPECT = 1.3;
-/** Faces never get bigger than this, so a small adda doesn't look blown up. */
-const MAX_CELL = 260;
+export interface RingLayout {
+  readonly host: Placed;
+  readonly crew: readonly Placed[];
+}
 
-/** The column count that gives the biggest faces for `count` people in a `width` × `height` box. */
-export function cardGrid(count: number, width: number, height: number): Grid {
-  let best: Grid = { cols: 1, rows: Math.max(1, count), cell: 0 };
-  for (let cols = 1; cols <= Math.max(1, count); cols++) {
-    const rows = Math.ceil(count / cols);
-    const cell = Math.min(width / cols, height / (rows * CELL_ASPECT), MAX_CELL);
-    if (cell > best.cell) best = { cols, rows, cell };
+const MAX_CELL = 230;
+const MIN_CELL = 56;
+
+/** The host's face: a bit bigger than the crew's, within sensible bounds. */
+function hostCell(cell: number): number {
+  return Math.min(MAX_CELL * 1.1, Math.max(cell * 1.25, 150));
+}
+
+/** `count` angles that split the ellipse into equal arcs, the first at `start`. */
+function evenAngles(count: number, a: number, b: number, start: number): number[] {
+  const steps = 720;
+  const lengths: number[] = [0];
+  for (let i = 1; i <= steps; i++) {
+    const t0 = start + ((i - 1) / steps) * Math.PI * 2;
+    const t1 = start + (i / steps) * Math.PI * 2;
+    const seg = Math.hypot(a * (Math.cos(t1) - Math.cos(t0)), b * (Math.sin(t1) - Math.sin(t0)));
+    lengths.push((lengths[i - 1] ?? 0) + seg);
   }
-  return best;
+  const total = lengths[steps] ?? 1;
+  return Array.from({ length: count }, (_, k) => {
+    const target = (k / count) * total;
+    const i = lengths.findIndex((l) => l >= target);
+    return start + (Math.max(0, i) / steps) * Math.PI * 2;
+  });
+}
+
+/** Two face cells (face plus name) would touch. */
+export function cellsOverlap(p: Placed, q: Placed): boolean {
+  const w = (p.cell + q.cell) / 2;
+  return Math.abs(p.x - q.x) < w && Math.abs(p.y - q.y) < w * CELL_ASPECT;
+}
+
+function ringAt(count: number, box: Box, cell: number): RingLayout {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const a = box.w / 2 - cell / 2;
+  const b = box.h / 2 - (cell * CELL_ASPECT) / 2;
+  const start = count <= 2 ? Math.PI : -Math.PI / 2;
+  const crew = evenAngles(count, a, b, start).map((angle) => ({
+    x: cx + Math.cos(angle) * a,
+    y: cy + Math.sin(angle) * b,
+    cell,
+  }));
+  return { host: { x: cx, y: cy, cell: hostCell(cell) }, crew };
+}
+
+function fits(ring: RingLayout): boolean {
+  const { host, crew } = ring;
+  if (crew.some((c) => cellsOverlap(c, host))) return false;
+  return crew.every((c, i) => crew.every((d, j) => j <= i || !cellsOverlap(c, d)));
+}
+
+/**
+ * The host in the middle of the box and the crew evenly around an ellipse, as big as fits:
+ * faces shrink as the crew grows. One or two people sit left and right; more start at the top.
+ */
+export function ringLayout(count: number, box: Box): RingLayout {
+  for (let cell = MAX_CELL; cell > MIN_CELL; cell -= 2) {
+    const ring = ringAt(count, box, cell);
+    if (fits(ring)) return ring;
+  }
+  return ringAt(count, box, MIN_CELL);
 }
 
 function firstName(name: string): string {
@@ -68,29 +132,31 @@ export function namesText(names: readonly string[]): string {
   return `${firsts.slice(0, 3).join(", ")} and ${firsts.length - 3} more`;
 }
 
+/** The post text, without the link (Telegram takes the link separately). */
+export const SHARE_TEXT =
+  "Check out my adda on coii 🎪 These are the people I'm meeting at Devcon 8, Mumbai:";
+
 /** The post text that goes with the image. */
-export function shareCaption(faces: readonly CardFace[]): string {
-  const crew = faces.filter((f) => !f.host).map((f) => f.name);
-  const who = crew.length > 0 ? ` Meeting ${namesText(crew)} in Mumbai.` : "";
-  return `My adda for Devcon 8 🎪${who} Build yours on coii: ${SHARE_URL}`;
+export function shareCaption(): string {
+  return `${SHARE_TEXT} ${SHARE_URL}`;
 }
 
-export function shareTitle(faces: readonly CardFace[]): string {
-  const host = faces.find((f) => f.host);
-  return host ? `${firstName(host.name)}'s adda` : "My adda";
+export function xIntentUrl(): string {
+  return `https://x.com/intent/post?text=${encodeURIComponent(shareCaption())}`;
 }
 
-export function xIntentUrl(caption: string): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(caption)}`;
-}
-
+/** LinkedIn's composer with the text filled in (the link inside it unfurls). */
 export function linkedInShareUrl(): string {
-  return `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(SHARE_URL)}`;
+  return `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareCaption())}`;
 }
 
-/** File name for the downloaded card, e.g. "zaras-adda-coii.png". */
-export function cardFileName(faces: readonly CardFace[]): string {
-  const slug = shareTitle(faces)
+export function telegramShareUrl(): string {
+  return `https://t.me/share/url?url=${encodeURIComponent(SHARE_URL)}&text=${encodeURIComponent(SHARE_TEXT)}`;
+}
+
+/** File name for the downloaded card, e.g. "rust-crew-coii.png". */
+export function cardFileName(title: string): string {
+  const slug = title
     .toLowerCase()
     .replaceAll("'", "")
     .replaceAll(/[^a-z0-9]+/g, "-")

@@ -1,14 +1,14 @@
 import { addaColor } from "@/data/adda";
 import type { AddaLook } from "@/data/adda";
 import { iconUrl } from "@/data/icons";
-import { CELL_ASPECT, cardGrid, shareTitle, SHARE_URL } from "@/ui/addaShare";
-import type { CardFace } from "@/ui/addaShare";
+import { CELL_ASPECT, ringLayout, SHARE_URL } from "@/ui/addaShare";
+import type { CardFace, Placed } from "@/ui/addaShare";
 import { drawAvatarPixels } from "@/ui/avatar";
 import { textOn } from "@/ui/color";
 
-/** 16:9 at 1600 × 900: crisp on X and LinkedIn, small enough to share from a phone. */
-export const CARD_W = 1600;
-export const CARD_H = 900;
+/** Square, so a ring of faces has room and X, LinkedIn and Telegram show it uncropped. */
+export const CARD_W = 1350;
+export const CARD_H = 1350;
 
 const INK = "#1e1538";
 const INK_SOFT = "#4a4166";
@@ -19,9 +19,10 @@ const MARIGOLD = "#ffb31a";
 const DISPLAY = '"Baloo 2", "Arial Rounded MT Bold", sans-serif';
 const BODY = '"Mukta", system-ui, sans-serif';
 
-const BAND_H = 210;
-const GRID = { x: 70, y: 272, w: CARD_W - 140, h: 540 };
-const FOOTER_Y = 862;
+const BAND_H = 150;
+/** Where the host and the ring of faces go, between the awning and the footer. */
+const RING = { x: 50, y: BAND_H + 40, w: CARD_W - 100, h: 1060 };
+const FOOTER_Y = 1312;
 
 async function loadImage(url: string): Promise<HTMLImageElement> {
   const img = new Image();
@@ -77,6 +78,7 @@ function drawBand(ctx: CanvasRenderingContext2D, color: string): void {
 
 function drawHeader(
   ctx: CanvasRenderingContext2D,
+  title: string,
   faces: readonly CardFace[],
   color: string,
   tent: HTMLImageElement,
@@ -85,12 +87,12 @@ function drawHeader(
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
   ctx.fillStyle = ink;
-  ctx.font = `800 92px ${DISPLAY}`;
-  ctx.fillText(fitText(ctx, shareTitle(faces), CARD_W - 360), 70, 112);
-  ctx.font = `700 36px ${BODY}`;
+  ctx.font = `800 72px ${DISPLAY}`;
+  ctx.fillText(fitText(ctx, title, CARD_W - 300), 64, 78);
+  ctx.font = `700 30px ${BODY}`;
   const people = faces.length === 1 ? "1 person" : `${faces.length} people`;
-  ctx.fillText(`${people} meeting at Devcon 8 · Mumbai`, 74, 166);
-  ctx.drawImage(tent, CARD_W - 250, 22, 170, 170);
+  ctx.fillText(`${people} meeting at Devcon 8 · Mumbai`, 68, 122);
+  ctx.drawImage(tent, CARD_W - 190, 12, 124, 124);
 }
 
 function drawFace(
@@ -149,16 +151,21 @@ function drawName(
   ctx.fillText("host", cx, top + size * (0.4 + lines.length * 1.05));
 }
 
-function drawGrid(ctx: CanvasRenderingContext2D, faces: readonly CardFace[]): void {
-  const { cols, rows, cell } = cardGrid(faces.length, GRID.w, GRID.h);
-  const cellH = cell * CELL_ASPECT;
-  const top = GRID.y + (GRID.h - rows * cellH) / 2;
-  faces.forEach((face, i) => {
-    const row = Math.floor(i / cols);
-    const inRow = row === rows - 1 ? faces.length - row * cols : cols;
-    const left = GRID.x + (GRID.w - inRow * cell) / 2;
-    drawFace(ctx, face, left + (i % cols) * cell, top + row * cellH, cell);
+/** Draws a face cell centred on the placed point. */
+function drawPlaced(ctx: CanvasRenderingContext2D, face: CardFace, at: Placed): void {
+  drawFace(ctx, face, at.x - at.cell / 2, at.y - (at.cell * CELL_ASPECT) / 2, at.cell);
+}
+
+/** The host in the middle, everyone else in a ring around them. */
+function drawRing(ctx: CanvasRenderingContext2D, faces: readonly CardFace[]): void {
+  const host = faces.find((f) => f.host);
+  const crew = faces.filter((f) => !f.host);
+  const layout = ringLayout(crew.length, RING);
+  crew.forEach((face, i) => {
+    const at = layout.crew[i];
+    if (at) drawPlaced(ctx, face, at);
   });
+  if (host) drawPlaced(ctx, host, layout.host);
 }
 
 function drawFooter(ctx: CanvasRenderingContext2D): void {
@@ -182,6 +189,7 @@ function drawFooter(ctx: CanvasRenderingContext2D): void {
  * adda's colour. Waits for the fonts so the names render in the app's type.
  */
 export async function drawAddaCard(
+  title: string,
   faces: readonly CardFace[],
   look: AddaLook,
 ): Promise<HTMLCanvasElement> {
@@ -198,8 +206,8 @@ export async function drawAddaCard(
   const color = addaColor(look.color).css;
   drawFloor(ctx);
   drawBand(ctx, color);
-  drawHeader(ctx, faces, color, tent);
-  drawGrid(ctx, faces);
+  drawHeader(ctx, title, faces, color, tent);
+  drawRing(ctx, faces);
   drawFooter(ctx);
   return canvas;
 }

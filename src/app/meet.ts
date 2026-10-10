@@ -65,6 +65,11 @@ export interface MeetController extends MeetActions {
   theyWaved(personId: string): void;
   /** You wave back without using today's allowance (accepting an adda invite). */
   waveFree(personId: string): WaveResult;
+  /**
+   * A normal wave made while adding someone to an adda: demo people answer the adda invite
+   * instead, so no separate demo wave-back is scheduled.
+   */
+  waveForAdda(personId: string): WaveResult;
   /** Re-reads you and today's hand; call after joining, leaving or at a new day. */
   sync(): void;
   /** Forget everything Meet stored for you (on leaving). */
@@ -270,7 +275,11 @@ class Meet implements MeetController {
     return wavesUsed(this.save, this.day()) >= WAVES_PER_DAY ? "quota" : null;
   }
 
-  readonly wave = (personId: string): WaveResult => {
+  readonly wave = (personId: string): WaveResult => this.sendWave(personId, true);
+
+  readonly waveForAdda = (personId: string): WaveResult => this.sendWave(personId, false);
+
+  private sendWave(personId: string, demoReplies: boolean): WaveResult {
     const blocked = this.waveBlocker(personId);
     const me = this.you();
     const target = this.personById(personId);
@@ -279,14 +288,19 @@ class Meet implements MeetController {
     this.save = { ...this.save, waves: [...this.save.waves, wave] };
     this.engine.greet(personId);
     this.onPoint(personId);
-    if (this.save.inbound.includes(personId)) {
-      this.addChai(personId, target.isDemo);
+    return this.afterWave(me, target, demoReplies);
+  }
+
+  /** A chai if they had already waved at you; otherwise a demo person may wave back later. */
+  private afterWave(me: Person, target: Person, demoReplies: boolean): WaveResult {
+    if (this.save?.inbound.includes(target.id)) {
+      this.addChai(target.id, target.isDemo);
       return "chai";
     }
-    if (target.isDemo) this.scheduleDemoReply(me, target);
+    if (target.isDemo && demoReplies) this.scheduleDemoReply(me, target);
     this.publish();
     return "waved";
-  };
+  }
 
   readonly hasWaved = (personId: string): boolean =>
     this.save?.waves.some((w) => w.to === personId) ?? false;

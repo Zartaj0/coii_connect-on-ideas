@@ -1,5 +1,5 @@
-import { isAddaLook } from "@/data/adda";
-import type { AddaLook } from "@/data/adda";
+import { isAddaLook, isAddaSpot } from "@/data/adda";
+import type { AddaLook, AddaPlaces } from "@/data/adda";
 
 export type MemberStatus = "invited" | "joined";
 
@@ -9,66 +9,124 @@ export interface AddaMember {
   readonly invitedAt: number;
 }
 
-/** Someone invited you to their adda and you haven't answered yet. */
-export interface AddaInvite {
-  readonly ownerId: string;
-  readonly at: number;
-}
-
-/** An adda you joined: who owns it, how it looks and who was in it when you joined. */
-export interface JoinedAdda {
-  readonly ownerId: string;
+/** One of your (up to three) addas. */
+export interface MyAdda {
+  readonly id: string;
+  readonly name: string;
   readonly look: AddaLook;
-  readonly memberIds: readonly string[];
-}
-
-/** Everything adda remembers for you in this browser (demo phase; the server owns it later). */
-export interface AddaSave {
-  readonly version: 1;
-  readonly personId: string;
-  /** Null until you build your adda. */
-  readonly look: AddaLook | null;
   readonly members: readonly AddaMember[];
   /**
    * Demo people who said no. They keep showing as invited, so a "no" is never signalled
    * (the same rule as hidden waves).
    */
   readonly declined: readonly string[];
+  /** Where you put the tent, per map layout; missing means its starting plot. */
+  readonly places: AddaPlaces;
+}
+
+/** Points at one adda: its owner and its id. */
+export interface AddaRef {
+  readonly ownerId: string;
+  readonly addaId: string;
+}
+
+/** Someone invited you to one of their addas and you haven't answered yet. */
+export interface AddaInvite extends AddaRef {
+  readonly name: string;
+  readonly at: number;
+}
+
+/** An adda you joined: whose, how it looks and who was in it when you joined. */
+export interface JoinedAdda extends AddaRef {
+  readonly name: string;
+  readonly look: AddaLook;
+  readonly memberIds: readonly string[];
+}
+
+/** Everything adda remembers for you in this browser (demo phase; the server owns it later). */
+export interface AddaSave {
+  readonly version: 2;
+  readonly personId: string;
+  readonly addas: readonly MyAdda[];
   readonly invites: readonly AddaInvite[];
   readonly joined: readonly JoinedAdda[];
-  /** Owner whose tent is on the map; null shows yours. */
-  readonly viewing: string | null;
+  /** A joined adda shown on the map next to yours, or null. */
+  readonly viewing: AddaRef | null;
 }
 
 const KEY = "coii:adda:v1";
 
 export function emptyAdda(personId: string): AddaSave {
+  return { version: 2, personId, addas: [], invites: [], joined: [], viewing: null };
+}
+
+type Raw = Record<string, unknown>;
+
+function list(value: unknown): Raw[] {
+  return Array.isArray(value) ? value.filter((v): v is Raw => !!v && typeof v === "object") : [];
+}
+
+function places(value: unknown): AddaPlaces {
+  const v = (value && typeof value === "object" ? value : {}) as Raw;
   return {
-    version: 1,
-    personId,
-    look: null,
-    members: [],
-    declined: [],
-    invites: [],
-    joined: [],
-    viewing: null,
+    ...(isAddaSpot(v["landscape"]) ? { landscape: v["landscape"] } : {}),
+    ...(isAddaSpot(v["portrait"]) ? { portrait: v["portrait"] } : {}),
   };
 }
 
-function isSave(value: unknown, personId: string): value is AddaSave {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Record<string, unknown>;
-  const lists = ["members", "declined", "invites", "joined"].every((k) => Array.isArray(v[k]));
-  const look = v["look"] === null || isAddaLook(v["look"]);
-  return v["version"] === 1 && v["personId"] === personId && lists && look;
+function myAdda(raw: Raw): MyAdda | null {
+  if (typeof raw["id"] !== "string" || typeof raw["name"] !== "string") return null;
+  if (!isAddaLook(raw["look"])) return null;
+  return {
+    id: raw["id"],
+    name: raw["name"],
+    look: raw["look"],
+    members: list(raw["members"]) as unknown as AddaMember[],
+    declined: (Array.isArray(raw["declined"]) ? raw["declined"] : []) as string[],
+    places: places(raw["places"]),
+  };
 }
 
-/** Your saved adda, or a fresh one if none exists, it belongs to someone else, or storage fails. */
+/** The first save format had one adda at the top level; it becomes your first adda. */
+function fromV1(v: Raw, personId: string): AddaSave {
+  const look = isAddaLook(v["look"]) ? v["look"] : null;
+  const addas: MyAdda[] = look
+    ? [
+        {
+          id: "adda-1",
+          name: "My adda",
+          look,
+          members: list(v["members"]) as unknown as AddaMember[],
+          declined: (Array.isArray(v["declined"]) ? v["declined"] : []) as string[],
+          places: {},
+        },
+      ]
+    : [];
+  return { ...emptyAdda(personId), addas };
+}
+
+function fromV2(v: Raw, personId: string): AddaSave {
+  const viewing = v["viewing"] as AddaRef | null;
+  return {
+    version: 2,
+    personId,
+    addas: list(v["addas"]).flatMap((a) => myAdda(a) ?? []),
+    invites: list(v["invites"]) as unknown as AddaInvite[],
+    joined: (list(v["joined"]) as unknown as JoinedAdda[]).filter((j) => isAddaLook(j.look)),
+    viewing: viewing && typeof viewing.addaId === "string" ? viewing : null,
+  };
+}
+
+/** Your saved addas, or a fresh save if none exists, it belongs to someone else, or storage fails. */
 export function loadAdda(personId: string): AddaSave {
   try {
     const raw = window.localStorage.getItem(KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return isSave(parsed, personId) ? parsed : emptyAdda(personId);
+    if (!parsed || typeof parsed !== "object") return emptyAdda(personId);
+    const v = parsed as Raw;
+    if (v["personId"] !== personId) return emptyAdda(personId);
+    if (v["version"] === 1) return fromV1(v, personId);
+    return v["version"] === 2 ? fromV2(v, personId) : emptyAdda(personId);
   } catch {
     return emptyAdda(personId);
   }

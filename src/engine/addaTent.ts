@@ -121,9 +121,14 @@ export class AddaTent {
   private readonly sign: Text;
   private readonly signBack = new Graphics();
   private key = "";
+  /** Which adda this plot shows right now, or null. */
+  addaId: string | null = null;
+  /** One of yours: you can drag it and drop people on it. */
+  mine = false;
+  private readonly ring = new Graphics();
 
   constructor(
-    readonly zone: Zone,
+    public zone: Zone,
     displayFont: string,
   ) {
     this.ground = new Graphics({ label: "adda-ground", x: zone.x, y: zone.y, visible: false });
@@ -136,11 +141,14 @@ export class AddaTent {
       resolution: 2,
     });
     this.tent.addChild(this.art, this.signBack, this.sign);
+    this.ground.addChild(this.ring);
   }
 
   show(view: AddaMapView | null): void {
     this.ground.visible = view !== null;
     this.tent.visible = view !== null;
+    this.addaId = view?.id ?? null;
+    this.mine = view?.mine ?? false;
     if (!view) return;
     const people = view.members.length;
     const joined = view.members.filter((m) => !m.pending).length;
@@ -154,11 +162,39 @@ export class AddaTent {
     this.drawSign(label, color);
   }
 
+  /** Puts the plot somewhere else (after the world moved its zone). */
+  setZone(zone: Zone): void {
+    this.zone = zone;
+    this.moveTo(zone.x, zone.y);
+    this.setDragging(null);
+  }
+
+  /** Draws the plot at a point without moving its zone (while you drag it). */
+  moveTo(x: number, y: number): void {
+    this.ground.position.set(x, y);
+    this.tent.position.set(x, y);
+  }
+
+  /** While dragging: a green ring where it can go, red where it can't; null when not dragging. */
+  setDragging(fits: boolean | null): void {
+    this.ring.clear();
+    this.tent.alpha = fits === false ? 0.6 : 1;
+    if (fits === null) return;
+    this.ring
+      .circle(0, 0, this.zone.r1)
+      .stroke({ color: fits ? 0x2f9e5b : 0xe5383b, width: 8, alpha: 0.9 });
+  }
+
   contains(wx: number, wy: number): boolean {
     if (!this.tent.visible) return false;
-    const x = wx - this.zone.x;
-    const y = wy - this.zone.y;
+    const x = wx - this.tent.x;
+    const y = wy - this.tent.y;
     return Math.abs(x) <= 100 && y >= -150 && y <= SIGN_Y + 20;
+  }
+
+  /** Whether a point is on the plot's ground (where people can be dropped). */
+  onGround(wx: number, wy: number): boolean {
+    return this.tent.visible && Math.hypot(wx - this.zone.x, wy - this.zone.y) <= this.zone.r1;
   }
 
   private drawGround(color: number, people: number, joined: number): void {

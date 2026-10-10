@@ -4,7 +4,7 @@ import { createController } from "@/app/controller";
 import type { JoinInput } from "@/app/controller";
 import { WAVES_PER_DAY } from "@/app/meet";
 import type { AddaView, AppState, Store } from "@/app/store";
-import { ADDA_MAX } from "@/data/adda";
+import { ADDA_MAX, ADDAS_MAX } from "@/data/adda";
 import { generateDemo } from "@/data/generateDemo";
 import { FakeEngine } from "@/engine/fake";
 import type { AddaMapView } from "@/engine/types";
@@ -41,137 +41,212 @@ function addaOf(store: Store<AppState>): AddaView {
   return adda;
 }
 
-function lastMap(engine: FakeEngine): AddaMapView | null {
-  const calls = engine.calls.filter((c) => c.method === "setAdda");
-  return (calls.at(-1)?.args[0] as AddaMapView | null | undefined) ?? null;
+function lastMaps(engine: FakeEngine): readonly AddaMapView[] {
+  const calls = engine.calls.filter((c) => c.method === "setAddas");
+  return (calls.at(-1)?.args[0] as readonly AddaMapView[] | undefined) ?? [];
+}
+
+/** Joins and builds one adda; returns its id. */
+function withAdda(ctx: ReturnType<typeof setup>): string {
+  ctx.actions.join(JOIN);
+  const addaId = ctx.actions.createAdda(LOOK);
+  if (!addaId) throw new Error("expected a new adda");
+  return addaId;
+}
+
+function membersOf(store: Store<AppState>, addaId: string) {
+  return addaOf(store).addas.find((a) => a.id === addaId)?.members ?? [];
 }
 
 function id(index: number): string {
   return CROWD[index]?.id ?? "";
 }
 
-describe("Adda: your tent", () => {
-  it("is off until you join, then waits for you to build it", () => {
+describe("Adda: your tents", () => {
+  it("is off until you join, then waits for you to build one", () => {
     const { store, actions, engine } = setup();
     expect(store.get().adda).toBeNull();
     actions.join(JOIN);
-    expect(addaOf(store)).toMatchObject({ look: null, members: [], invites: [] });
-    expect(lastMap(engine)).toBeNull();
+    expect(addaOf(store)).toMatchObject({ addas: [], invites: [] });
+    expect(lastMaps(engine)).toEqual([]);
   });
 
-  it("only invites people you built a tent for and waved at", () => {
-    const { store, actions, engine } = setup();
+  it("builds up to three addas, named by default or by you", () => {
+    const { store, actions } = setup();
     actions.join(JOIN);
-    expect(actions.inviteToAdda(id(0))).toBe("needs_adda");
-    actions.buildAdda(LOOK);
-    expect(actions.inviteToAdda(id(0))).toBe("needs_wave");
+    const ids = [
+      actions.createAdda(LOOK),
+      actions.createAdda(LOOK, "  Rust   crew "),
+      actions.createAdda(LOOK, "see t.me/x"),
+    ];
+    expect(ids.every((addaId) => addaId !== null)).toBe(true);
+    expect(actions.createAdda(LOOK)).toBeNull();
+    expect(addaOf(store).addas.map((a) => a.name)).toEqual([
+      "Zara's adda",
+      "Rust crew",
+      "Zara's adda 3",
+    ]);
+    expect(addaOf(store).addas).toHaveLength(ADDAS_MAX);
+  });
+
+  it("only invites people you waved at, per adda", () => {
+    const ctx = setup();
+    const { store, actions, engine } = ctx;
+    const addaId = withAdda(ctx);
+    expect(actions.inviteToAdda(id(0), "nope")).toBe("needs_adda");
+    expect(actions.inviteToAdda(id(0), addaId)).toBe("needs_wave");
     actions.wave(id(0));
-    expect(actions.inviteToAdda(id(0))).toBe("invited");
-    expect(actions.inviteToAdda(id(0))).toBe("already");
-    expect(addaOf(store).members).toEqual([
+    expect(actions.inviteToAdda(id(0), addaId)).toBe("invited");
+    expect(actions.inviteToAdda(id(0), addaId)).toBe("already");
+    expect(membersOf(store, addaId)).toEqual([
       { personId: id(0), status: "invited", invitedAt: START },
     ]);
-    const map = lastMap(engine);
-    expect(map?.label).toBe("Zara's adda");
-    expect(map?.look).toEqual(LOOK);
+    const [map] = lastMaps(engine);
+    expect(map).toMatchObject({ id: addaId, label: "Zara's adda", look: LOOK, mine: true });
     expect(map?.members.map((m) => [m.person.name, m.pending])).toEqual([
       ["Zara Khan", false],
       [CROWD[0]?.name, true],
     ]);
   });
 
+  it("the same person can be in two of your addas", () => {
+    const ctx = setup();
+    const a = withAdda(ctx);
+    const b = ctx.actions.createAdda(LOOK) ?? "";
+    ctx.actions.wave(id(0));
+    expect(ctx.actions.inviteToAdda(id(0), a)).toBe("invited");
+    expect(ctx.actions.inviteToAdda(id(0), b)).toBe("invited");
+  });
+
   it("stops at the size cap", () => {
-    const { actions } = setup();
-    actions.join(JOIN);
-    actions.buildAdda(LOOK);
+    const ctx = setup();
+    const addaId = withAdda(ctx);
     const results = CROWD.slice(0, ADDA_MAX + 1).map((p) => {
-      actions.wave(p.id);
-      return actions.inviteToAdda(p.id);
+      ctx.actions.wave(p.id);
+      return ctx.actions.inviteToAdda(p.id, addaId);
     });
     expect(results.filter((r) => r === "invited")).toHaveLength(ADDA_MAX);
     expect(results.at(-1)).toBe("full");
   });
 
   it("demo people answer: a yes joins and makes a chai, a no keeps showing as invited", () => {
-    const { store, actions, advance, engine } = setup();
-    actions.join(JOIN);
-    actions.buildAdda(LOOK);
+    const ctx = setup();
+    const { store, actions, advance, engine } = ctx;
+    const addaId = withAdda(ctx);
     const invited = CROWD.slice(0, 25).map((p) => p.id);
     for (const pid of invited) {
       actions.wave(pid);
-      actions.inviteToAdda(pid);
+      actions.inviteToAdda(pid, addaId);
     }
     advance(31_000);
-    const members = addaOf(store).members;
+    const members = membersOf(store, addaId);
     const joined = members.filter((m) => m.status === "joined").map((m) => m.personId);
     expect(joined.length).toBeGreaterThan(0);
     expect(joined.length).toBeLessThan(invited.length);
     expect(members).toHaveLength(invited.length);
     const chais = new Set(store.get().meet?.chais.map((c) => c.personId));
     expect(joined.every((pid) => chais.has(pid))).toBe(true);
-    const pending = lastMap(engine)?.members.filter((m) => m.pending).length;
+    const pending = lastMaps(engine)[0]?.members.filter((m) => m.pending).length;
     expect(pending).toBe(invited.length - joined.length);
   });
 
-  it("removing someone cancels their pending answer", () => {
-    const { store, actions, advance } = setup();
-    actions.join(JOIN);
-    actions.buildAdda(LOOK);
-    actions.wave(id(1));
-    actions.inviteToAdda(id(1));
-    actions.removeFromAdda(id(1));
-    advance(31_000);
-    expect(addaOf(store).members).toEqual([]);
+  it("removing someone cancels their pending answer; deleting takes the tent down", () => {
+    const ctx = setup();
+    const addaId = withAdda(ctx);
+    ctx.actions.wave(id(1));
+    ctx.actions.inviteToAdda(id(1), addaId);
+    ctx.actions.removeFromAdda(id(1), addaId);
+    ctx.advance(31_000);
+    expect(membersOf(ctx.store, addaId)).toEqual([]);
+    ctx.actions.deleteAdda(addaId);
+    expect(addaOf(ctx.store).addas).toEqual([]);
+    expect(lastMaps(ctx.engine)).toEqual([]);
+  });
+
+  it("remembers where you dragged a tent, per layout", () => {
+    const ctx = setup();
+    const addaId = withAdda(ctx);
+    ctx.engine.emitAddaMoved(addaId, "portrait", { x: 0.2, y: 0.9 });
+    expect(addaOf(ctx.store).addas[0]?.places).toEqual({ portrait: { x: 0.2, y: 0.9 } });
+    expect(lastMaps(ctx.engine)[0]?.places).toEqual({ portrait: { x: 0.2, y: 0.9 } });
   });
 
   it("is forgotten when you leave coii", () => {
-    const { store, actions, engine } = setup();
-    actions.join(JOIN);
-    actions.buildAdda(LOOK);
-    actions.leave();
-    expect(store.get().adda).toBeNull();
-    expect(lastMap(engine)).toBeNull();
+    const ctx = setup();
+    withAdda(ctx);
+    ctx.actions.leave();
+    expect(ctx.store.get().adda).toBeNull();
+    expect(lastMaps(ctx.engine)).toEqual([]);
   });
 });
 
+describe("Adda: dropping someone on your tent", () => {
+  it("asks you to wave and add first, then they drop into the tent", () => {
+    const ctx = setup();
+    const addaId = withAdda(ctx);
+    ctx.engine.emitBeanDropped(id(2), addaId);
+    expect(ctx.store.get()).toMatchObject({
+      overlay: "drop",
+      addaDrop: { personId: id(2), addaId },
+    });
+    expect(ctx.actions.waveAndAdd(id(2), addaId)).toBe("invited");
+    expect(ctx.store.get().meet?.waved).toContain(id(2));
+    expect(membersOf(ctx.store, addaId).map((m) => m.personId)).toEqual([id(2)]);
+    expect(ctx.engine.calls.at(-1)).toEqual({ method: "dropIn", args: [addaId, id(2)] });
+    expect(ctx.store.get()).toMatchObject({ overlay: "none", addaDrop: null });
+  });
+
+  it("someone already in the tent just gets a toast", () => {
+    const ctx = setup();
+    const addaId = withAdda(ctx);
+    ctx.actions.waveAndAdd(id(3), addaId);
+    ctx.engine.emitBeanDropped(id(3), addaId);
+    expect(ctx.store.get().overlay).toBe("none");
+    expect(ctx.store.get().toasts.at(-1)?.text).toContain("already in");
+  });
+});
+
+/** Joins and waits for a demo invite to arrive. */
 function withInvite() {
   const ctx = setup();
   ctx.actions.join(JOIN);
   ctx.advance(271_000);
   const invite = addaOf(ctx.store).invites[0];
   if (!invite) throw new Error("expected a demo invite within 270 s");
-  return { ...ctx, ownerId: invite.ownerId };
+  return { ...ctx, invite };
 }
 
 describe("Adda: invites to you", () => {
   it("accepting joins their adda and makes a chai without using a wave", () => {
-    const { store, actions, ownerId, engine } = withInvite();
-    actions.acceptAddaInvite(ownerId);
+    const { store, actions, invite, engine } = withInvite();
+    expect(invite.name).toMatch(/'s adda$/);
+    actions.acceptAddaInvite(invite);
     const adda = addaOf(store);
-    expect(adda.invites.some((i) => i.ownerId === ownerId)).toBe(false);
-    expect(adda.joined.map((j) => j.ownerId)).toContain(ownerId);
-    expect(store.get().meet?.chais.some((c) => c.personId === ownerId)).toBe(true);
+    expect(adda.invites).toEqual([]);
+    expect(adda.joined.map((j) => j.addaId)).toEqual([invite.addaId]);
+    expect(store.get().meet?.chais.some((c) => c.personId === invite.ownerId)).toBe(true);
     expect(store.get().meet?.wavesLeft).toBe(WAVES_PER_DAY);
     expect(store.get().meet?.celebrate).toBeNull();
-    actions.viewAdda(ownerId);
-    const map = lastMap(engine);
-    expect(map?.ownerId).toBe(ownerId);
-    expect(map?.members.every((m) => !m.pending)).toBe(true);
-    expect(engine.calls.at(-1)?.method).toBe("focusAdda");
+    actions.viewAdda(invite);
+    const theirs = lastMaps(engine).find((m) => !m.mine);
+    expect(theirs?.ownerId).toBe(invite.ownerId);
+    expect(theirs?.members.every((m) => !m.pending)).toBe(true);
+    expect(engine.calls.at(-1)).toEqual({ method: "focusAdda", args: [invite.addaId] });
   });
 
   it("saying not now just drops the invite", () => {
-    const { store, actions, ownerId } = withInvite();
-    actions.declineAddaInvite(ownerId);
+    const { store, actions, invite } = withInvite();
+    actions.declineAddaInvite(invite);
     expect(addaOf(store).invites).toEqual([]);
-    expect(store.get().meet?.chais.some((c) => c.personId === ownerId)).toBe(false);
+    expect(store.get().meet?.chais.some((c) => c.personId === invite.ownerId)).toBe(false);
   });
 
-  it("leaving their adda puts your own tent back on the map", () => {
-    const { store, actions, ownerId } = withInvite();
-    actions.acceptAddaInvite(ownerId);
-    actions.viewAdda(ownerId);
-    actions.leaveAdda(ownerId);
+  it("leaving their adda takes their tent off your map", () => {
+    const { store, actions, invite, engine } = withInvite();
+    actions.acceptAddaInvite(invite);
+    actions.viewAdda(invite);
+    actions.leaveAdda(invite);
     expect(addaOf(store)).toMatchObject({ joined: [], viewing: null });
+    expect(lastMaps(engine).some((m) => !m.mine)).toBe(false);
   });
 });

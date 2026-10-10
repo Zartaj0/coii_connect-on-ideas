@@ -455,3 +455,116 @@
 .share-actions__row .btn {
   flex: 1 1 180px;
 }
+
+.adda-picker__name {
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 14px 6px;
+  border: var(--line-thin);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+}
+
+.adda-picker__name[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.adda-lines {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adda-card {
+  margin: 0 0 18px;
+  padding: 14px;
+  border: var(--line-thin);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: var(--pop-sm);
+}
+
+.adda-card .adda-tent {
+  margin: 0 0 10px;
+}
+
+.adda-card .adda-rows {
+  margin-top: 12px;
+}
+
+.adda-card__name {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.15;
+}
+
+.adda-tent__who {
+  display: grid;
+  gap: 2px;
+}
+
+.adda-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.adda-new-btn {
+  width: 100%;
+  margin: 0 0 18px;
+}
+
+/* ---- drop popup ------------------------------------------------------------------------------- */
+
+.overlay--drop {
+  --overlay-w: 460px;
+}
+
+.drop {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 26px 22px 22px;
+  text-align: center;
+}
+
+.drop .overlay__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.drop__title {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.drop__text {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.drop__actions {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.share__caption {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+}

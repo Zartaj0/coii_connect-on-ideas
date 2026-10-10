@@ -8,6 +8,7 @@ import type { EngineApi } from "@/engine/types";
 import { AboutOverlay } from "@/ui/AboutOverlay";
 import { BoardOverlay } from "@/ui/BoardOverlay";
 import { ChaiOverlay } from "@/ui/ChaiCard";
+import { DropAddaOverlay } from "@/ui/DropAddaOverlay";
 import { useHeightVar, useMediaQuery, usePresence } from "@/ui/hooks";
 import { Hud } from "@/ui/Hud";
 import { OpenChaiContext } from "@/ui/meetHooks";
@@ -138,6 +139,8 @@ function OverlayFor(props: {
       return <BoardOverlay {...rest} />;
     case "share":
       return <ShareAddaOverlay {...rest} />;
+    case "drop":
+      return <DropAddaOverlay {...rest} />;
   }
 }
 

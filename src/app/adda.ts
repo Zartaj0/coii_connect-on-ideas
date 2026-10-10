@@ -1,10 +1,10 @@
 import { demoAnswer, demoCrew, demoInviter, demoLook } from "@/adda/demo";
 import { clearAdda, loadAdda, saveAdda } from "@/adda/storage";
-import type { AddaMember, AddaSave } from "@/adda/storage";
+import type { AddaMember, AddaRef, AddaSave, MyAdda } from "@/adda/storage";
 import type { MeetClock, MeetController } from "@/app/meet";
 import type { AddaView, AppState, Store, Toast } from "@/app/store";
-import { ADDA_MAX } from "@/data/adda";
-import type { AddaLook } from "@/data/adda";
+import { ADDA_MAX, ADDAS_MAX, cleanAddaName, defaultAddaName } from "@/data/adda";
+import type { AddaLook, AddaSpot, PlotMode } from "@/data/adda";
 import type { IconId, Person } from "@/data/types";
 import type { AddaMapMember, AddaMapView, EngineApi } from "@/engine/types";
 
@@ -22,21 +22,37 @@ export type InviteResult =
   | "already"
   | "unavailable";
 
+/** Result of the drag-and-drop shortcut: wave (if needed) and add in one go. */
+export type WaveAndAddResult = InviteResult | "quota";
+
 export interface AddaActions {
-  /** Builds your adda, or changes how it looks. */
-  buildAdda(look: AddaLook): void;
-  /** Invites someone you have waved at. They see it's you. */
-  inviteToAdda(personId: string): InviteResult;
+  /** Builds a new adda (up to three); returns its id, or null when you already have three. */
+  createAdda(look: AddaLook, name?: string): string | null;
+  /** Changes an adda's look and name. */
+  editAdda(addaId: string, look: AddaLook, name: string): void;
+  /** Takes the tent down; its people are silently let go. */
+  deleteAdda(addaId: string): void;
+  /** Invites someone you have waved at to one of your addas. They see it's you. */
+  inviteToAdda(personId: string, addaId: string): InviteResult;
+  /** Waves at them if you haven't yet, then invites them; they drop into the tent. */
+  waveAndAdd(personId: string, addaId: string): WaveAndAddResult;
   /** Takes back an invite or removes a member, silently. */
-  removeFromAdda(personId: string): void;
+  removeFromAdda(personId: string, addaId: string): void;
   /** Joins their adda: you wave back for free, which makes it a chai. */
-  acceptAddaInvite(ownerId: string): void;
+  acceptAddaInvite(invite: AddaRef): void;
   /** Says "not now"; they are never told. */
-  declineAddaInvite(ownerId: string): void;
-  leaveAdda(ownerId: string): void;
-  /** Shows this owner's tent on the map (null: yours) and flies there. */
-  viewAdda(ownerId: string | null): void;
-  focusAdda(): void;
+  declineAddaInvite(invite: AddaRef): void;
+  leaveAdda(adda: AddaRef): void;
+  /** Shows an adda you joined on the map next to yours (null hides it) and flies there. */
+  viewAdda(adda: AddaRef | null): void;
+  /** Flies to one of the tents on the map. */
+  focusAdda(addaId: string): void;
+  /** Remembers where you dragged one of your tents. */
+  moveAdda(addaId: string, mode: PlotMode, spot: AddaSpot): void;
+  /** Closes the "wave + add first" popup. */
+  dismissAddaDrop(): void;
+  /** Opens the share card for one of your addas. */
+  shareAdda(addaId: string): void;
 }
 
 export interface AddaController extends AddaActions {
@@ -44,6 +60,8 @@ export interface AddaController extends AddaActions {
   sync(): void;
   /** Forget everything adda stored for you (on leaving). */
   forget(): void;
+  /** You dropped a bean on one of your tents. */
+  beanDropped(personId: string, addaId: string): void;
 }
 
 type PushToast = (text: string, icon: IconId | null, tone: Toast["tone"]) => void;
@@ -61,31 +79,34 @@ export function firstName(person: Person): string {
 }
 
 function viewOf(save: AddaSave): AddaView {
-  return {
-    look: save.look,
-    members: save.members,
-    invites: save.invites,
-    joined: save.joined,
-    viewing: save.viewing,
-  };
+  return { addas: save.addas, invites: save.invites, joined: save.joined, viewing: save.viewing };
 }
 
-function withStatus(save: AddaSave, personId: string, status: AddaMember["status"]): AddaSave {
+function sameRef(a: AddaRef, b: AddaRef | null): boolean {
+  return b !== null && a.ownerId === b.ownerId && a.addaId === b.addaId;
+}
+
+function changeAdda(save: AddaSave, addaId: string, change: (adda: MyAdda) => MyAdda): AddaSave {
+  return { ...save, addas: save.addas.map((a) => (a.id === addaId ? change(a) : a)) };
+}
+
+function withStatus(adda: MyAdda, personId: string, status: AddaMember["status"]): MyAdda {
   return {
-    ...save,
-    members: save.members.map((m) => (m.personId === personId ? { ...m, status } : m)),
+    ...adda,
+    members: adda.members.map((m) => (m.personId === personId ? { ...m, status } : m)),
   };
 }
 
 /**
- * Adda game loop for the demo phase: your tent, invites both ways and demo answers, persisted in
- * this browser. The map shows one tent: yours, or one you joined.
+ * Adda game loop for the demo phase: up to three tents of your own, invites both ways and demo
+ * answers, persisted in this browser. The map shows your tents plus one you joined, if chosen.
  */
 class Adda implements AddaController {
   private save: AddaSave | null = null;
   private readonly answers = new Map<string, () => void>();
   private cancelDrip: (() => void) | null = null;
   private drips = 0;
+  private nextId = 0;
 
   constructor(private readonly deps: AddaDeps) {}
 
@@ -110,8 +131,8 @@ class Adda implements AddaController {
     this.answers.clear();
     this.cancelDrip?.();
     this.cancelDrip = null;
-    this.deps.store.set({ adda: null });
-    this.deps.engine.setAdda(null);
+    this.deps.store.set({ adda: null, addaDrop: null });
+    this.deps.engine.setAddas([]);
   }
 
   // ---- helpers ---------------------------------------------------------------------------------
@@ -124,6 +145,10 @@ class Adda implements AddaController {
     return this.deps.store.get().people.find((p) => p.id === id);
   }
 
+  private addaById(addaId: string): MyAdda | undefined {
+    return this.save?.addas.find((a) => a.id === addaId);
+  }
+
   private update(change: (save: AddaSave) => AddaSave): void {
     if (!this.save) return;
     this.save = change(this.save);
@@ -134,7 +159,7 @@ class Adda implements AddaController {
     if (!this.save) return;
     saveAdda(this.save);
     this.deps.store.set({ adda: viewOf(this.save) });
-    this.deps.engine.setAdda(this.mapView(this.save));
+    this.deps.engine.setAddas(this.mapViews(this.save));
   }
 
   private mapMember(id: string, pending: boolean): AddaMapMember[] {
@@ -142,140 +167,235 @@ class Adda implements AddaController {
     return person ? [{ person, pending }] : [];
   }
 
-  private mapView(save: AddaSave): AddaMapView | null {
+  private mapViews(save: AddaSave): AddaMapView[] {
     const me = this.you();
-    if (!me) return null;
-    const other = save.joined.find((j) => j.ownerId === save.viewing);
-    if (other) {
-      const owner = this.personById(other.ownerId);
-      if (!owner) return null;
-      const ids = [owner.id, me.id, ...other.memberIds.filter((id) => id !== me.id)];
-      const members = ids.flatMap((id) => this.mapMember(id, false));
-      return { ownerId: owner.id, label: `${firstName(owner)}'s adda`, look: other.look, members };
-    }
-    if (!save.look) return null;
-    const members = [
-      ...this.mapMember(me.id, false),
-      ...save.members.flatMap((m) => this.mapMember(m.personId, m.status === "invited")),
-    ];
-    return { ownerId: me.id, label: `${firstName(me)}'s adda`, look: save.look, members };
+    if (!me) return [];
+    const mine: AddaMapView[] = save.addas.map((adda) => ({
+      id: adda.id,
+      ownerId: me.id,
+      mine: true,
+      places: adda.places,
+      label: adda.name,
+      look: adda.look,
+      members: [
+        ...this.mapMember(me.id, false),
+        ...adda.members.flatMap((m) => this.mapMember(m.personId, m.status === "invited")),
+      ],
+    }));
+    const shown = save.joined.find((j) => sameRef(j, save.viewing));
+    const owner = shown && this.personById(shown.ownerId);
+    if (!shown || !owner) return mine;
+    const ids = [owner.id, me.id, ...shown.memberIds.filter((id) => id !== me.id)];
+    const theirs: AddaMapView = {
+      id: shown.addaId,
+      ownerId: owner.id,
+      mine: false,
+      places: {},
+      label: shown.name,
+      look: shown.look,
+      members: ids.flatMap((id) => this.mapMember(id, false)),
+    };
+    return [...mine, theirs];
   }
 
-  // ---- your adda -------------------------------------------------------------------------------
+  // ---- your addas ------------------------------------------------------------------------------
 
-  readonly buildAdda = (look: AddaLook): void => {
-    if (!this.save) return;
-    const first = this.save.look === null;
-    this.update((s) => ({ ...s, look, viewing: first ? null : s.viewing }));
-    if (first) {
-      this.deps.pushToast("Your adda is up! Find it by the gate.", "party_popper", "success");
-    }
+  readonly createAdda = (look: AddaLook, name?: string): string | null => {
+    const me = this.you();
+    if (!this.save || !me || this.save.addas.length >= ADDAS_MAX) return null;
+    this.nextId++;
+    const id = `adda-${this.deps.clock.now().toString(36)}-${this.nextId}`;
+    const fallback = defaultAddaName(firstName(me), this.save.addas.length);
+    const adda: MyAdda = {
+      id,
+      name: cleanAddaName(name ?? "") ?? fallback,
+      look,
+      members: [],
+      declined: [],
+      places: {},
+    };
+    const first = this.save.addas.length === 0;
+    this.update((s) => ({ ...s, addas: [...s.addas, adda] }));
+    this.deps.pushToast(
+      first ? "Your adda is up! Drag it anywhere outside the ring." : `${adda.name} is up!`,
+      "party_popper",
+      "success",
+    );
+    return id;
   };
 
-  private inviteBlocker(personId: string): InviteResult | null {
+  readonly editAdda = (addaId: string, look: AddaLook, name: string): void => {
+    this.update((s) =>
+      changeAdda(s, addaId, (a) => ({ ...a, look, name: cleanAddaName(name) ?? a.name })),
+    );
+  };
+
+  readonly deleteAdda = (addaId: string): void => {
+    const adda = this.addaById(addaId);
+    for (const m of adda?.members ?? []) this.cancelAnswer(addaId, m.personId);
+    this.update((s) => ({ ...s, addas: s.addas.filter((a) => a.id !== addaId) }));
+  };
+
+  private inviteRule(adda: MyAdda | undefined, personId: string): InviteResult | null {
+    if (!adda) return "needs_adda";
+    if (adda.members.some((m) => m.personId === personId)) return "already";
+    if (!this.deps.meet.hasWaved(personId)) return "needs_wave";
+    return adda.members.length >= ADDA_MAX ? "full" : null;
+  }
+
+  readonly inviteToAdda = (personId: string, addaId: string): InviteResult => {
     const me = this.you();
     const target = this.personById(personId);
     if (!this.save || !me || !target || target.id === me.id) return "unavailable";
-    return this.inviteRule(this.save, personId);
-  }
-
-  private inviteRule(save: AddaSave, personId: string): InviteResult | null {
-    if (!save.look) return "needs_adda";
-    if (save.members.some((m) => m.personId === personId)) return "already";
-    if (!this.deps.meet.hasWaved(personId)) return "needs_wave";
-    return save.members.length >= ADDA_MAX ? "full" : null;
-  }
-
-  readonly inviteToAdda = (personId: string): InviteResult => {
-    const blocked = this.inviteBlocker(personId);
-    const me = this.you();
-    const target = this.personById(personId);
-    if (blocked || !me || !target) return blocked ?? "unavailable";
+    const blocked = this.inviteRule(this.addaById(addaId), personId);
+    if (blocked) return blocked;
     const member: AddaMember = { personId, status: "invited", invitedAt: this.deps.clock.now() };
-    this.update((s) => ({ ...s, members: [...s.members, member], viewing: null }));
-    if (target.isDemo) this.scheduleAnswer(me, target);
+    this.update((s) => changeAdda(s, addaId, (a) => ({ ...a, members: [...a.members, member] })));
+    if (target.isDemo) this.scheduleAnswer(me, target, addaId);
     return "invited";
   };
 
-  private scheduleAnswer(me: Person, target: Person): void {
-    const answer = demoAnswer(me, target, this.deps.clock.random);
-    const cancel = this.deps.clock.schedule(() => {
-      this.answers.delete(target.id);
-      const member = this.save?.members.find((m) => m.personId === target.id);
-      if (member?.status !== "invited") return;
-      if (answer.joins) this.memberJoined(target);
-      else this.update((s) => ({ ...s, declined: [...s.declined, target.id] }));
-    }, answer.delayMs);
-    this.answers.set(target.id, cancel);
+  readonly waveAndAdd = (personId: string, addaId: string): WaveAndAddResult => {
+    if (!this.deps.meet.hasWaved(personId)) {
+      const waved = this.deps.meet.waveForAdda(personId);
+      if (waved === "quota" || waved === "unavailable") return waved;
+    }
+    const result = this.inviteToAdda(personId, addaId);
+    if (result === "invited") this.deps.engine.dropIn(addaId, personId);
+    this.deps.store.set({ addaDrop: null, overlay: "none" });
+    return result;
+  };
+
+  private answerKey(addaId: string, personId: string): string {
+    return `${addaId}:${personId}`;
   }
 
-  private memberJoined(person: Person): void {
-    this.update((s) => withStatus(s, person.id, "joined"));
+  private cancelAnswer(addaId: string, personId: string): void {
+    const key = this.answerKey(addaId, personId);
+    this.answers.get(key)?.();
+    this.answers.delete(key);
+  }
+
+  private scheduleAnswer(me: Person, target: Person, addaId: string): void {
+    const answer = demoAnswer(me, target, this.deps.clock.random);
+    const key = this.answerKey(addaId, target.id);
+    const cancel = this.deps.clock.schedule(() => {
+      this.answers.delete(key);
+      const member = this.addaById(addaId)?.members.find((m) => m.personId === target.id);
+      if (member?.status !== "invited") return;
+      if (answer.joins) this.memberJoined(target, addaId);
+      else
+        this.update((s) =>
+          changeAdda(s, addaId, (a) => ({ ...a, declined: [...a.declined, target.id] })),
+        );
+    }, answer.delayMs);
+    this.answers.set(key, cancel);
+  }
+
+  private memberJoined(person: Person, addaId: string): void {
+    this.update((s) => changeAdda(s, addaId, (a) => withStatus(a, person.id, "joined")));
     this.deps.meet.theyWaved(person.id);
+    const name = this.addaById(addaId)?.name ?? "your adda";
     this.deps.pushToast(
-      `${firstName(person)} joined your adda! You're meeting at Devcon.`,
+      `${firstName(person)} joined ${name}! You're meeting at Devcon.`,
       "handshake",
       "success",
     );
   }
 
-  readonly removeFromAdda = (personId: string): void => {
-    this.answers.get(personId)?.();
-    this.answers.delete(personId);
-    this.update((s) => ({
-      ...s,
-      members: s.members.filter((m) => m.personId !== personId),
-      declined: s.declined.filter((id) => id !== personId),
-    }));
+  readonly removeFromAdda = (personId: string, addaId: string): void => {
+    this.cancelAnswer(addaId, personId);
+    this.update((s) =>
+      changeAdda(s, addaId, (a) => ({
+        ...a,
+        members: a.members.filter((m) => m.personId !== personId),
+        declined: a.declined.filter((id) => id !== personId),
+      })),
+    );
+  };
+
+  readonly moveAdda = (addaId: string, mode: PlotMode, spot: AddaSpot): void => {
+    this.update((s) =>
+      changeAdda(s, addaId, (a) => ({ ...a, places: { ...a.places, [mode]: spot } })),
+    );
+  };
+
+  // ---- dropping people on a tent -----------------------------------------------------------------
+
+  readonly beanDropped = (personId: string, addaId: string): void => {
+    const me = this.you();
+    const adda = this.addaById(addaId);
+    const person = this.personById(personId);
+    if (!me || !adda || !person || person.id === me.id) return;
+    if (adda.members.some((m) => m.personId === personId)) {
+      this.deps.pushToast(
+        `${firstName(person)} is already in ${adda.name}.`,
+        "circus_tent",
+        "info",
+      );
+      return;
+    }
+    this.deps.store.set({ addaDrop: { personId, addaId }, overlay: "drop" });
+  };
+
+  readonly dismissAddaDrop = (): void => {
+    this.deps.store.set({ addaDrop: null, overlay: "none" });
+  };
+
+  readonly shareAdda = (addaId: string): void => {
+    if (!this.addaById(addaId)) return;
+    this.deps.store.set({ shareAddaId: addaId, overlay: "share" });
   };
 
   // ---- other people's addas --------------------------------------------------------------------
 
-  readonly acceptAddaInvite = (ownerId: string): void => {
-    const owner = this.personById(ownerId);
+  readonly acceptAddaInvite = (invite: AddaRef): void => {
+    const found = this.save?.invites.find((i) => sameRef(i, invite));
+    const owner = this.personById(invite.ownerId);
     const me = this.you();
-    if (!this.save?.invites.some((i) => i.ownerId === ownerId) || !owner || !me) return;
+    if (!found || !owner || !me) return;
     const joined = {
-      ownerId,
-      look: demoLook(ownerId),
+      ownerId: owner.id,
+      addaId: found.addaId,
+      name: found.name,
+      look: demoLook(owner.id),
       memberIds: demoCrew(owner, this.deps.store.get().people, me.id),
     };
     this.update((s) => ({
       ...s,
-      invites: s.invites.filter((i) => i.ownerId !== ownerId),
-      joined: [...s.joined.filter((j) => j.ownerId !== ownerId), joined],
+      invites: s.invites.filter((i) => !sameRef(i, invite)),
+      joined: [...s.joined.filter((j) => !sameRef(j, invite)), joined],
     }));
-    this.deps.meet.theyWaved(ownerId);
-    this.deps.meet.waveFree(ownerId);
+    this.deps.meet.theyWaved(owner.id);
+    this.deps.meet.waveFree(owner.id);
     this.deps.pushToast(
-      `You're in ${firstName(owner)}'s adda! You're meeting at Devcon.`,
+      `You're in ${found.name}! You and ${firstName(owner)} are meeting at Devcon.`,
       "handshake",
       "success",
     );
   };
 
-  readonly declineAddaInvite = (ownerId: string): void => {
-    this.update((s) => ({ ...s, invites: s.invites.filter((i) => i.ownerId !== ownerId) }));
+  readonly declineAddaInvite = (invite: AddaRef): void => {
+    this.update((s) => ({ ...s, invites: s.invites.filter((i) => !sameRef(i, invite)) }));
   };
 
-  readonly leaveAdda = (ownerId: string): void => {
+  readonly leaveAdda = (adda: AddaRef): void => {
     this.update((s) => ({
       ...s,
-      joined: s.joined.filter((j) => j.ownerId !== ownerId),
-      viewing: s.viewing === ownerId ? null : s.viewing,
+      joined: s.joined.filter((j) => !sameRef(j, adda)),
+      viewing: sameRef(adda, s.viewing) ? null : s.viewing,
     }));
   };
 
-  readonly viewAdda = (ownerId: string | null): void => {
+  readonly viewAdda = (adda: AddaRef | null): void => {
     if (!this.save) return;
-    const known = ownerId === null || this.save.joined.some((j) => j.ownerId === ownerId);
-    if (!known) return;
-    this.update((s) => ({ ...s, viewing: ownerId }));
-    this.deps.engine.focusAdda();
+    if (adda && !this.save.joined.some((j) => sameRef(j, adda))) return;
+    this.update((s) => ({ ...s, viewing: adda }));
+    if (adda) this.deps.engine.focusAdda(adda.addaId);
   };
 
-  readonly focusAdda = (): void => {
-    this.deps.engine.focusAdda();
+  readonly focusAdda = (addaId: string): void => {
+    this.deps.engine.focusAdda(addaId);
   };
 
   /** Now and then a demo person who shares your topics invites you to their adda. */
@@ -297,17 +417,23 @@ class Adda implements AddaController {
     if (!me || !save) return;
     const taken = new Set([
       me.id,
-      ...save.members.map((m) => m.personId),
+      ...save.addas.flatMap((a) => a.members.map((m) => m.personId)),
       ...save.invites.map((i) => i.ownerId),
       ...save.joined.map((j) => j.ownerId),
     ]);
     const inviter = demoInviter(me, this.deps.store.get().people, taken, this.deps.clock.random);
     if (!inviter) return;
     this.drips++;
-    const invite = { ownerId: inviter.id, at: this.deps.clock.now() };
+    const name = defaultAddaName(firstName(inviter), 0);
+    const invite = {
+      ownerId: inviter.id,
+      addaId: `${inviter.id}:adda`,
+      name,
+      at: this.deps.clock.now(),
+    };
     this.update((s) => ({ ...s, invites: [...s.invites, invite] }));
     this.deps.pushToast(
-      `${firstName(inviter)} wants you in their adda! Answer in the Adda tab.`,
+      `${firstName(inviter)} wants you in ${name}! Answer in the Adda tab.`,
       "handshake",
       "info",
     );

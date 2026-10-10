@@ -39,10 +39,17 @@ export class Camera {
   vx = 0;
   vy = 0;
   private tween: Tween | null = null;
+  /** What `fit` frames; the whole world when null. You can still zoom out to see it all. */
+  private fitRect: { x: number; y: number; w: number; h: number } | null = null;
 
-  setWorld(width: number, height: number): void {
+  setWorld(
+    width: number,
+    height: number,
+    fit: { x: number; y: number; w: number; h: number } | null = null,
+  ): void {
     this.worldW = width;
     this.worldH = height;
+    this.fitRect = fit;
     this.updateLimits();
   }
 
@@ -59,8 +66,10 @@ export class Camera {
 
   private updateLimits(): void {
     const visibleH = Math.max(1, this.viewH - this.insetTop);
-    this.fitZoom = Math.min(this.viewW / this.worldW, visibleH / this.worldH) * 0.96;
-    this.minZoom = this.fitZoom * 0.9;
+    const fit = this.fitRect ?? { x: 0, y: 0, w: this.worldW, h: this.worldH };
+    this.fitZoom = Math.min(this.viewW / fit.w, visibleH / fit.h) * 0.96;
+    const wholeWorld = Math.min(this.viewW / this.worldW, visibleH / this.worldH) * 0.96;
+    this.minZoom = Math.min(this.fitZoom, wholeWorld) * 0.9;
     this.zoom = Math.min(MAX_ZOOM, Math.max(this.minZoom, this.zoom));
     this.clamp();
   }
@@ -146,7 +155,8 @@ export class Camera {
   }
 
   fit(duration: number): void {
-    this.flyTo(this.worldW / 2, this.worldH / 2, this.fitZoom, duration);
+    const fit = this.fitRect ?? { x: 0, y: 0, w: this.worldW, h: this.worldH };
+    this.flyTo(fit.x + fit.w / 2, fit.y + fit.h / 2, this.fitZoom, duration);
   }
 
   get animating(): boolean {

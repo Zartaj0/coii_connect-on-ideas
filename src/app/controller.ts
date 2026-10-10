@@ -285,10 +285,6 @@ function followEngine(engine: EngineApi, store: AppStore): void {
       store.set({ selectedId: null, panel: "none", framed: false });
     else store.set({ selectedId: null });
   });
-  engine.on("addaTap", () => {
-    deselect(engine, store);
-    store.set({ panel: "adda", framed: false });
-  });
   engine.on("boothTap", (topic) => {
     deselect(engine, store);
     store.set({ boothTopic: topic, panel: "booth", framed: true });
@@ -310,15 +306,31 @@ function meetActionsOf(meet: MeetController): MeetActions {
 
 function addaActionsOf(adda: AddaController): AddaActions {
   return {
-    buildAdda: adda.buildAdda,
+    createAdda: adda.createAdda,
+    editAdda: adda.editAdda,
+    deleteAdda: adda.deleteAdda,
     inviteToAdda: adda.inviteToAdda,
+    waveAndAdd: adda.waveAndAdd,
     removeFromAdda: adda.removeFromAdda,
     acceptAddaInvite: adda.acceptAddaInvite,
     declineAddaInvite: adda.declineAddaInvite,
     leaveAdda: adda.leaveAdda,
     viewAdda: adda.viewAdda,
     focusAdda: adda.focusAdda,
+    moveAdda: adda.moveAdda,
+    dismissAddaDrop: adda.dismissAddaDrop,
+    shareAdda: adda.shareAdda,
   };
+}
+
+/** Taps, drags and drops on adda tents. */
+function followAddaTents(engine: EngineApi, store: AppStore, adda: AddaController): void {
+  engine.on("addaTap", () => {
+    deselect(engine, store);
+    store.set({ panel: "adda", framed: false });
+  });
+  engine.on("addaMoved", adda.moveAdda);
+  engine.on("beanDropped", adda.beanDropped);
 }
 
 /** Owns app state and keeps the engine in sync with it. UI components only call `actions`. */
@@ -336,6 +348,8 @@ export function createController(engine: EngineApi, options: ControllerOptions):
     toasts: [],
     meet: null,
     adda: null,
+    addaDrop: null,
+    shareAddaId: null,
     tribe: false,
     points: loadPoints(),
     reducedMotion: options.reducedMotion,
@@ -361,6 +375,7 @@ export function createController(engine: EngineApi, options: ControllerOptions):
     ...addaActionsOf(adda),
   };
   followEngine(engine, store);
+  followAddaTents(engine, store, adda);
   meet.sync();
   adda.sync();
   points.refreshCrowns();

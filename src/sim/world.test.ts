@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { generateDemo } from "@/data/generateDemo";
 import { topicIndex } from "@/data/topics";
 import { zoneCapacities } from "@/sim/capacity";
-import { computeLayout } from "@/sim/layout";
+import { addaZone, computeLayout } from "@/sim/layout";
 import type { LayoutMode } from "@/sim/layout";
 import { State, World } from "@/sim/world";
 
@@ -187,7 +187,9 @@ describe("World", () => {
 
 function withStandIns(count: number): { world: World; indexes: number[] } {
   const world = makeWorld("landscape", 200);
-  const zone = world.layout.addaIndex;
+  const zone = world.layout.addaSlots[0]!;
+  const plot = world.layout.defaultPlots[0]!;
+  world.placeZone(zone, addaZone(plot.x, plot.y, true));
   world.setSpotLimit(zone, count + 4);
   const indexes = Array.from({ length: count }, (_, i) =>
     world.spawn({ id: `adda:${i}`, topics: [i % 10], isYou: false, pinnedZone: zone }, "scatter"),
@@ -198,7 +200,7 @@ function withStandIns(count: number): { world: World; indexes: number[] } {
 describe("adda stand-ins", () => {
   it("never leave the adda plot, however long they wander", () => {
     const { world, indexes } = withStandIns(12);
-    const zone = world.layout.zones[world.layout.addaIndex]!;
+    const zone = world.zones[world.layout.addaSlots[0]!]!;
     run(world, 60);
     for (const index of indexes) {
       const a = world.agent(index);
@@ -218,5 +220,21 @@ describe("adda stand-ins", () => {
     run(world, 30);
     const after = indexes.map((i) => [world.agent(i).x, world.agent(i).y]);
     expect(after).not.toEqual(before);
+  });
+});
+
+describe("moving an adda plot", () => {
+  it("its crowd follows the tent to the new place", () => {
+    const { world, indexes } = withStandIns(8);
+    const slot = world.layout.addaSlots[0]!;
+    const to = world.layout.defaultPlots[1]!;
+    run(world, 2);
+    world.placeZone(slot, addaZone(to.x, to.y, true));
+    run(world, 40);
+    const zone = world.zones[slot]!;
+    for (const index of indexes) {
+      const a = world.agent(index);
+      expect(Math.hypot(a.x - zone.x, a.y - zone.y)).toBeLessThanOrEqual(zone.r1 + 20);
+    }
   });
 });

@@ -1,3 +1,6 @@
+import { containsLink } from "@/data/handles";
+import { containsMention } from "@/data/oneLinerRules";
+
 /**
  * Adda: your own crew for Devcon, drawn as a little tent on the map (spec: docs/prd/adda.md).
  * Shared by the app, the engine and the UI.
@@ -56,4 +59,41 @@ export function isAddaLook(value: unknown): value is AddaLook {
 export function addaTier(members: number): 0 | 1 | 2 {
   if (members <= 5) return 0;
   return members <= 15 ? 1 : 2;
+}
+
+/** Most addas one person can run. */
+export const ADDAS_MAX = 3;
+export const ADDA_NAME_MAX = 24;
+
+/** The map's two layouts; a tent remembers where it sits in each. */
+export type PlotMode = "landscape" | "portrait";
+
+/** A tent's place on the map as fractions of the world's width and height (0–1). */
+export interface AddaSpot {
+  readonly x: number;
+  readonly y: number;
+}
+
+export type AddaPlaces = Partial<Readonly<Record<PlotMode, AddaSpot>>>;
+
+/** A tidy adda name (spaces collapsed, ≤ 24 characters, no links or @handles), or null. */
+export function cleanAddaName(raw: string): string | null {
+  const name = raw.replaceAll(/\s+/g, " ").trim();
+  if (name.length === 0 || name.length > ADDA_NAME_MAX) return null;
+  return containsLink(name) || containsMention(name) ? null : name;
+}
+
+/** "Zara's adda", then "Zara's adda 2" and "Zara's adda 3". */
+export function defaultAddaName(firstName: string, index: number): string {
+  return index === 0 ? `${firstName}'s adda` : `${firstName}'s adda ${index + 1}`;
+}
+
+function inRange(n: unknown): boolean {
+  return typeof n === "number" && n >= 0 && n <= 1;
+}
+
+export function isAddaSpot(value: unknown): value is AddaSpot {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return inRange(v["x"]) && inRange(v["y"]);
 }
