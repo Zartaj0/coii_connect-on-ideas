@@ -82,7 +82,7 @@ function Hero({ titleId, onClose }: { readonly titleId: string; readonly onClose
       <CloseButton onClose={onClose} />
       <p className="about__kicker">About</p>
       <h2 id={titleId} className="about__title">
-        <span className="about__gm">gm</span> coii
+        coii
       </h2>
       <p className="about__tagline">connect on ideas & interests</p>
       <div className="about__crowd" aria-hidden="true">

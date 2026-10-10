@@ -38,10 +38,6 @@
   rotate: -2deg;
 }
 
-.wordmark__gm {
-  color: var(--rani);
-}
-
 /* The tagline only fits beside the map on wider screens; the About overlay spells it out. */
 .wordmark__sub {
   display: none;

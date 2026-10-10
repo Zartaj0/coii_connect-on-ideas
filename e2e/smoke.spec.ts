@@ -187,7 +187,7 @@ test("About opens over the venue, which keeps moving behind it", async ({ page }
   await waitForCrowd(page);
   await page.waitForTimeout(3000); // let the phone intro camera settle
   await page.getByRole("button", { name: "About" }).click();
-  const about = page.getByRole("dialog", { name: "gm coii" });
+  const about = page.getByRole("dialog", { name: "coii" });
   await expect(about).toBeVisible();
   await expect(about.getByText("connect on ideas & interests")).toBeVisible();
   const before = await samplePositions(page);

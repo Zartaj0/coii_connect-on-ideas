@@ -49,10 +49,6 @@
     -2px 3px 0 var(--ink);
 }
 
-.about__gm {
-  color: var(--rani);
-}
-
 .about__tagline {
   display: inline-block;
   margin: 10px 0 0;

@@ -1,4 +1,4 @@
-# gm coii
+# coii
 
 Find your people at Devcon by **ideas**, not logos. A live cartoon venue where every booth is a
 topic and every attendee is a tiny bean person hanging around the booths they care about. Tap

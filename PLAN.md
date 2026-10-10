@@ -3,7 +3,7 @@
 > **coii**: connect on ideas & interests.
 > Find your people at Devcon by **ideas**, not logos.
 
-Name: **coii**, short for "connect on ideas & interests" (final). On-site wordmark: "gm coii".
+Name: **coii**, short for "connect on ideas & interests" (final). On-site wordmark: "coii".
 Web address (decided): `https://coii.decipherclub.com/`, hosted on Vercel (`decipherclub.com` DNS
 is on Cloudflare; `www` is the Ghost blog). The repo folder is still `conDevCon`; renaming it is optional.
 
