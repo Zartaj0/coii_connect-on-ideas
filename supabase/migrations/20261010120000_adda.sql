@@ -1,5 +1,5 @@
 -- coii backend, part 5: adda, up to three crews per person, each in a tent on the map.
--- Spec: docs/prd/adda.md.
+-- Spec: docs/prd/iteration_v2_feature.md.
 
 -- ---- tables -----------------------------------------------------------------------------------
 

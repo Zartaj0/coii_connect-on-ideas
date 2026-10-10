@@ -41,7 +41,7 @@ export interface MeetView {
   readonly celebrate: string | null;
 }
 
-/** Your addas (spec: docs/prd/adda.md). Present once you have joined. */
+/** Your addas (spec: docs/prd/iteration_v2_feature.md). Present once you have joined. */
 export interface AddaView {
   /** Up to three; anyone who said no still shows as invited. */
   readonly addas: readonly MyAdda[];
