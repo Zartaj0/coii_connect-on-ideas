@@ -43,6 +43,25 @@ agreed to meet. The tent grows as people join.
   remove, invites for you with Join / Not now, addas you're in with Show on map / Leave. The tab
   badge counts invites waiting for you.
 
+## Sharing your adda
+
+- **Share my adda** in the Adda tab (once at least one person said yes) opens a share card: a
+  1600 × 900 PNG drawn in the browser with the same bean art as the map.
+- On the card: your name first (marked "host"), then everyone who said yes, each with their bean
+  and full name (wrapped to two lines when long). People still waiting, or who said no, are
+  left out: they never agreed to be shown. No handles.
+- Header in the adda's colour ("Zara's adda · 6 people meeting at Devcon 8 · Mumbai"), footer
+  with the coii wordmark and `coii.decipherclub.com`.
+- Buttons:
+  - **Share image** (phones that support sharing files): the native share sheet, so X,
+    LinkedIn, WhatsApp, Instagram and the rest get the picture directly.
+  - **Post on X / Post on LinkedIn**: saves the image, copies the caption and opens the
+    composer. Neither site accepts an image through a link, so the image has to be attached by
+    hand; a toast says so.
+  - **Download image** and **Copy caption**.
+- Caption: "My adda for Devcon 8 🎪 Meeting Riya, Arjun, Mei and 4 more in Mumbai. Build yours
+  on coii: https://coii.decipherclub.com".
+
 ## Demo behaviour
 
 - Saved in this browser under `coii:adda:v1`.

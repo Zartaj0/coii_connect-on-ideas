@@ -16,6 +16,7 @@ import { PhoneSheets, SidePanel } from "@/ui/Panels";
 import type { QueryState } from "@/ui/Panels";
 import type { PeopleQuery } from "@/ui/people";
 import { DEFAULT_QUERY } from "@/ui/PeopleList";
+import { ShareAddaOverlay } from "@/ui/ShareAddaOverlay";
 import { TabBar } from "@/ui/TabBar";
 import { Toasts } from "@/ui/Toasts";
 import { YouOverlay } from "@/ui/YouOverlay";
@@ -135,6 +136,8 @@ function OverlayFor(props: {
       return <YouOverlay {...rest} />;
     case "board":
       return <BoardOverlay {...rest} />;
+    case "share":
+      return <ShareAddaOverlay {...rest} />;
   }
 }
 

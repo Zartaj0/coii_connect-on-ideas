@@ -262,14 +262,37 @@ function MyTent({ adda }: { readonly adda: AddaView }) {
   return (
     <div className="adda-tent">
       <TentPreview kind={adda.look.style} color={addaColor(adda.look.color).css} size={96} />
+      <div className="adda-tent__actions">
+        <ShareButton adda={adda} />
+        <button
+          type="button"
+          className="btn btn--secondary btn--small"
+          onClick={() => setEditing(true)}
+        >
+          Edit look
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Opens the share card; it needs at least one person who said yes. */
+function ShareButton({ adda }: { readonly adda: AddaView }) {
+  const actions = useActions();
+  const ready = addaCounts(adda).joined > 0;
+  return (
+    <>
       <button
         type="button"
-        className="btn btn--secondary btn--small"
-        onClick={() => setEditing(true)}
+        className="btn btn--wave btn--small"
+        disabled={!ready}
+        onClick={() => actions.openOverlay("share")}
       >
-        Edit look
+        <Icon id="circus_tent" size={20} />
+        Share my adda
       </button>
-    </div>
+      {ready ? null : <p className="adda-note">You can share once someone says yes.</p>}
+    </>
   );
 }
 

@@ -69,11 +69,21 @@ export function renderAvatar(
   face: FaceKind = "open",
 ): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  const size = Math.round(cssSize * dpr);
-  canvas.width = size;
-  canvas.height = size;
   canvas.style.width = `${cssSize}px`;
   canvas.style.height = `${cssSize}px`;
+  drawAvatarPixels(canvas, avatar, topic, Math.round(cssSize * dpr), face);
+}
+
+/** Same as `renderAvatar`, at an exact pixel size (share images, where screen density is moot). */
+export function drawAvatarPixels(
+  canvas: HTMLCanvasElement,
+  avatar: Avatar,
+  topic: TopicId,
+  size: number,
+  face: FaceKind = "open",
+): void {
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, size, size);

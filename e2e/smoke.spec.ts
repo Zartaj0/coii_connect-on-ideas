@@ -409,3 +409,51 @@ test("adda: an invite waiting for you can be joined, which makes it a chai", asy
   expect(state?.adda?.joined.map((j) => j.ownerId)).toEqual([owner]);
   expect(state?.meet?.waved).toContain(owner);
 });
+
+test("adda: share a picture of everyone who said yes", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  await page.evaluate(() => {
+    const state = window.__coii?.controller.store.get();
+    const you = state?.you;
+    if (!state || !you) return;
+    const ids = state.people
+      .filter((p) => p.isDemo)
+      .slice(0, 3)
+      .map((p) => p.id);
+    const save = {
+      version: 1,
+      personId: you.id,
+      look: { style: "tambu", color: "peacock" },
+      members: ids.map((id, i) => ({
+        personId: id,
+        status: i === 2 ? "invited" : "joined",
+        invitedAt: Date.now(),
+      })),
+      declined: [],
+      invites: [],
+      joined: [],
+      viewing: null,
+    };
+    localStorage.setItem("coii:adda:v1", JSON.stringify(save));
+  });
+  await page.reload();
+  await waitForCrowd(page);
+  await page.evaluate(() => window.__coii?.controller.actions.openPanel("adda"));
+  await page.getByRole("button", { name: "Share my adda" }).click();
+  const dialog = page.getByRole("dialog", { name: "Share your adda" });
+  const card = dialog.locator("img.share-card");
+  // You plus the two who said yes; the one still waiting is left out.
+  await expect(card).toHaveAttribute("alt", /^Meet's adda: Meet, \S+ and \S+$/);
+  const size = await card.evaluate((img: HTMLImageElement) => [
+    img.naturalWidth,
+    img.naturalHeight,
+  ]);
+  expect(size).toEqual([1600, 900]);
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Download image" }).click();
+  expect((await download).suggestedFilename()).toBe("meets-adda-coii.png");
+  expect(errors).toEqual([]);
+});

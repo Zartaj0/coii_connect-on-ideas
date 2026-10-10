@@ -370,3 +370,88 @@
   align-items: center;
   gap: 8px;
 }
+
+.adda-tent__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.adda-tent__actions .adda-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* ---- share card overlay ----------------------------------------------------------------------- */
+
+.overlay--share {
+  --overlay-w: 860px;
+}
+
+.share {
+  display: grid;
+  gap: 16px;
+  padding: 20px 22px 24px;
+}
+
+.share__head {
+  position: relative;
+  padding-right: 48px;
+}
+
+.share__head .overlay__close {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.share__title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.share__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.share-card {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--pop);
+  background: var(--floor);
+}
+
+.share-card--loading {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--ink-soft);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.share-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.share-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.share-actions__row .btn {
+  flex: 1 1 180px;
+}
