@@ -2,11 +2,14 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { distance, sunflowerSpots } from "@/sim/geometry";
-import { computeLayout, modeForAspect } from "@/sim/layout";
+import { ADDA_SLOTS, addaOuterRadius, computeLayout, modeForAspect, plotFits } from "@/sim/layout";
 import type { VenueLayout } from "@/sim/layout";
 
 function assertValid(layout: VenueLayout): void {
-  expect(layout.zones).toHaveLength(11);
+  expect(layout.addaSlots).toHaveLength(ADDA_SLOTS);
+  expect(layout.zones).toHaveLength(11 + ADDA_SLOTS);
+  expect(layout.zones[layout.plazaIndex]?.kind).toBe("plaza");
+  for (const slot of layout.addaSlots) expect(layout.zones[slot]?.kind).toBe("adda");
   for (let i = 0; i < layout.zones.length; i++) {
     const a = layout.zones[i]!;
     expect(a.x - a.r1).toBeGreaterThanOrEqual(0);
@@ -50,6 +53,33 @@ describe("computeLayout", () => {
     const tall = computeLayout("portrait", caps, 60);
     expect(wide.width).toBeGreaterThan(wide.height);
     expect(tall.height).toBeGreaterThan(tall.width);
+  });
+
+  it("starts the first adda plot beside the gate, with room for a full crowd", () => {
+    const caps = [300, 150, 200, 160, 180, 120, 100, 100, 90, 70];
+    for (const mode of ["landscape", "portrait"] as const) {
+      const layout = computeLayout(mode, caps, 60);
+      const adda = layout.zones[layout.addaSlots[0]!]!;
+      expect(adda.x).toBeGreaterThan(layout.gate.x + 200);
+      expect(Math.abs(adda.y - layout.gate.y)).toBeLessThan(adda.r1 * 3);
+      expect(adda.r1 - adda.r0).toBeGreaterThan(60);
+    }
+  });
+
+  it("lets adda plots go anywhere outside the ring of booths, never inside it", () => {
+    const caps = [300, 150, 200, 160, 180, 120, 100, 100, 90, 70];
+    for (const mode of ["landscape", "portrait"] as const) {
+      const layout = computeLayout(mode, caps, 60);
+      const plaza = layout.zones[layout.plazaIndex]!;
+      expect(plotFits(layout, plaza.x, plaza.y + plaza.r1 + 60, [])).toBe(false);
+      for (const p of layout.defaultPlots) expect(plotFits(layout, p.x, p.y, [])).toBe(true);
+      const [a, b] = layout.defaultPlots;
+      expect(plotFits(layout, a!.x, a!.y, [{ ...b!, r: addaOuterRadius() }])).toBe(true);
+      expect(plotFits(layout, a!.x, a!.y, [{ ...a!, r: addaOuterRadius() }])).toBe(false);
+      // The camera frames the venue, inside the bigger world.
+      expect(layout.fit.x).toBeGreaterThan(0);
+      expect(layout.fit.x + layout.fit.w).toBeLessThan(layout.width);
+    }
   });
 
   it("picks portrait for phones held upright", () => {

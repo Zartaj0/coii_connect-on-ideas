@@ -80,6 +80,13 @@ function YouSummary({ you, onEdit }: { readonly you: Person; readonly onEdit: ()
           <Icon id="sparkles" size={20} />
           See today's 3
         </button>
+        <button
+          type="button"
+          className="btn btn--secondary"
+          onClick={() => actions.openOverlay("invite")}
+        >
+          Invite friends
+        </button>
         <LeaveButton />
       </div>
     </div>

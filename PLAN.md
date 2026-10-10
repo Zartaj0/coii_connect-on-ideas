@@ -3,7 +3,7 @@
 > **coii**: connect on ideas & interests.
 > Find your people at Devcon by **ideas**, not logos.
 
-Name: **coii**, short for "connect on ideas & interests" (final). On-site wordmark: "gm coii".
+Name: **coii**, short for "connect on ideas & interests" (final). On-site wordmark: "coii".
 Web address (decided): `https://coii.decipherclub.com/`, hosted on Vercel (`decipherclub.com` DNS
 is on Cloudflare; `www` is the Ghost blog). The repo folder is still `conDevCon`; renaming it is optional.
 
@@ -49,6 +49,14 @@ for how to run it.
 - Catchy one-liners (up to 3) pop up over beans a few at a time; waving unlocks contact and
   gives a wave point; live board, crowns and "+1" pops. Spec:
   `docs/prd/wave-points-and-one-liners.md`
+
+**Adda (10 Oct 2026, branch `iteration-adda`):**
+
+- Your own adda: a tent by the gate (3 styles, 6 colours) that grows with its crowd, up to 30
+  people. Add people you waved at from their profile; waiting invitees stand see-through in the
+  tent, and joining waves back for free, which makes a chai. Adda tab on phone and desktop.
+  Spec: `docs/prd/adda.md`
+- Database: `addas` and `adda_members` with RPCs and pgTAP tests; app wiring comes with L2
 
 **Next** (detailed task list with fun and engagement ideas: [TRACKER.md](TRACKER.md))
 

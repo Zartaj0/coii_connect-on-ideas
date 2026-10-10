@@ -6,6 +6,8 @@ import { iconUrl } from "@/data/icons";
 import { intentById } from "@/data/intents";
 import { TOPICS, topicIndex } from "@/data/topics";
 import type { IconId, Person, TopicId } from "@/data/types";
+import { AddaPlots } from "@/engine/addaPlots";
+import type { AddaPlotsHost } from "@/engine/addaPlots";
 import { BUBBLE_ICONS, buildCrowdAtlas } from "@/engine/atlas";
 import type { CrowdAtlas, Frame } from "@/engine/atlas";
 import { BOOTH_LABEL_DY, BoothView } from "@/engine/booths";
@@ -21,7 +23,7 @@ import { BoothLabels, LabelLayer, PointPops, QuoteBubbles } from "@/engine/label
 import { bgr, FLOOR } from "@/engine/palette";
 import { bubbleBox, QUOTE_ZOOM, QuoteDirector, quoteCap } from "@/engine/quotes";
 import type { QuoteSpot } from "@/engine/quotes";
-import type { EngineApi, EngineEvents, EngineStats } from "@/engine/types";
+import type { AddaMapView, EngineApi, EngineEvents, EngineStats } from "@/engine/types";
 import { buildChaiStall, buildFloor, buildGarlands, buildGate } from "@/engine/venue";
 import { zoneCapacities } from "@/sim/capacity";
 import { computeLayout, modeForAspect } from "@/sim/layout";
@@ -34,6 +36,8 @@ const STEP = 1 / 30;
 const MAX_STEPS = 3;
 const DISPLAY_FONT = "Baloo 2";
 const MAX_BUBBLES = 70;
+/** `hitBooth` reports adda tents as this plus their slot (booths are 0–9). */
+const ADDA_TAP = 100;
 
 interface Scene {
   readonly app: Application;
@@ -52,6 +56,7 @@ interface Scene {
   readonly worldLayer: Container;
   readonly robots: RobotCrew | null;
   readonly ticker: Ticker | null;
+  readonly plots: AddaPlots;
 }
 
 type Listeners = { [K in keyof EngineEvents]: Set<EngineEvents[K]> };
@@ -95,6 +100,7 @@ interface VenueLayers {
   readonly crowd: CrowdRenderer;
   readonly robots: RobotCrew | null;
   readonly ticker: Ticker | null;
+  readonly plots: AddaPlots;
 }
 
 function buildBooths(
@@ -137,12 +143,15 @@ function buildVenueLayers(
   world: World,
   atlas: CrowdAtlas,
   icons: Map<IconId, Texture>,
+  host: AddaPlotsHost,
 ): VenueLayers {
   const { defi, ticker, robots } = buildGags(layout);
   const worldLayer = new Container({ isRenderGroup: true, label: "world" });
   worldLayer.addChild(buildFloor(layout));
-  if (defi) worldLayer.addChild(buildPool(defi));
   const boothLayer = new Container({ label: "booths" });
+  const plots = new AddaPlots(world, layout, DISPLAY_FONT, host);
+  plots.addTo(worldLayer, boothLayer);
+  if (defi) worldLayer.addChild(buildPool(defi));
   const booths = buildBooths(layout, icons, boothLayer);
   if (ticker) boothLayer.addChild(ticker.view);
   boothLayer.addChild(buildChaiStall(plazaOf(layout), DISPLAY_FONT, iconOf(icons, "hot_beverage")));
@@ -155,7 +164,7 @@ function buildVenueLayers(
   worldLayer.addChild(buildGarlands(layout));
   if (defi) worldLayer.addChild(buildPoolSign(defi, DISPLAY_FONT));
   worldLayer.addChild(buildGate(layout, DISPLAY_FONT));
-  return { worldLayer, booths, crowd, robots, ticker };
+  return { worldLayer, booths, crowd, robots, ticker, plots };
 }
 
 function plazaOf(layout: VenueLayout): Zone {
@@ -183,6 +192,9 @@ export class CoiiEngine implements EngineApi {
   private readonly listeners: Listeners = {
     select: new Set(),
     boothTap: new Set(),
+    addaTap: new Set(),
+    addaMoved: new Set(),
+    beanDropped: new Set(),
     ready: new Set(),
   };
   private readonly queue: ((scene: Scene) => void)[] = [];
@@ -368,6 +380,31 @@ export class CoiiEngine implements EngineApi {
     });
   }
 
+  setAddas(views: readonly AddaMapView[]): void {
+    this.whenReady((scene) => scene.plots.apply(views));
+  }
+
+  focusAdda(addaId: string): void {
+    this.whenReady((scene) => {
+      const zone = scene.plots.zoneOf(addaId);
+      if (!zone) return;
+      const span = zone.r * 2 + 200;
+      const zoom = Math.min(scene.camera.viewW / span, scene.camera.viewH / span);
+      this.follow = -1;
+      scene.camera.flyTo(zone.x, zone.y, Math.max(zoom, 0.6), this.reducedMotion ? 0 : 0.8);
+    });
+  }
+
+  dropIn(addaId: string, personId: string): void {
+    this.whenReady((scene) => {
+      const at = scene.plots.dropIn(addaId, personId);
+      if (!at) return;
+      this.follow = -1;
+      const zoom = Math.max(scene.camera.zoom, 0.95);
+      scene.camera.flyTo(at.x, at.y - 60, zoom, this.reducedMotion ? 0 : 0.9);
+    });
+  }
+
   fit(): void {
     this.whenReady((scene) => {
       this.follow = -1;
@@ -419,6 +456,22 @@ export class CoiiEngine implements EngineApi {
     if (!scene || index === undefined) return null;
     const a = scene.world.agent(index);
     return scene.camera.worldToScreen(a.x, a.y - 18 - a.z);
+  }
+
+  /** Who a mouse press at this screen point would pick up (null: nobody); used by tests. */
+  personAtScreen(sx: number, sy: number): string | null {
+    const scene = this.scene;
+    if (!scene) return null;
+    const p = scene.camera.screenToWorld(sx, sy);
+    const index = scene.world.pick(p.x, p.y, 16 / scene.camera.zoom);
+    const agent = scene.world.agents[index];
+    return agent && agent.pinned < 0 ? (this.personAt[index]?.id ?? null) : null;
+  }
+
+  /** Screen position (CSS px, relative to the map) of an adda tent's centre; used by tests. */
+  screenPositionOfAdda(addaId: string): { x: number; y: number } | null {
+    const zone = this.scene?.plots.zoneOf(addaId);
+    return zone && this.scene ? this.scene.camera.worldToScreen(zone.x, zone.y) : null;
   }
 
   // ---- startup ---------------------------------------------------------------------------------
@@ -476,10 +529,18 @@ export class CoiiEngine implements EngineApi {
 
   private buildScene(parts: SceneParts): Scene {
     const { app, world, layout, atlas, icons, rect } = parts;
-    const venue = buildVenueLayers(layout, world, atlas, icons);
+    const venue = buildVenueLayers(layout, world, atlas, icons, {
+      spawnStandIn: (person, zone) => this.spawnStandIn(person, zone),
+      removeStandIn: (index) => this.removeStandIn(index),
+      celebrate: (index, x, y) => {
+        if (!this.scene) return;
+        this.scene.crowd.impulse(index, 0.6);
+        this.confetti(this.scene, x, y - 40, 24);
+      },
+    });
     app.stage.addChild(venue.worldLayer);
     const camera = new Camera();
-    camera.setWorld(layout.width, layout.height);
+    camera.setWorld(layout.width, layout.height, layout.fit);
     camera.setViewport(rect.width, rect.height);
     camera.setInsets(this.insetTop);
     const labels = new LabelLayer();
@@ -844,6 +905,28 @@ export class CoiiEngine implements EngineApi {
 
   // ---- agents ----------------------------------------------------------------------------------
 
+  /** A copy of someone's bean that lives in the adda tent; taps on it open the real person. */
+  private spawnStandIn(person: Person, zone: number): number {
+    const scene = this.scene;
+    if (!scene) throw new Error("Adda stand-ins need the venue to be running");
+    const topics = person.topics.map(topicIndex);
+    const spec = { id: `adda:${person.id}`, topics, isYou: false, pinnedZone: zone };
+    const index = scene.world.spawn(spec, "scatter");
+    scene.crowd.setLook(index, this.lookFor(scene.atlas, person, topics[0] ?? 0));
+    this.personAt[index] = person;
+    return index;
+  }
+
+  private removeStandIn(index: number): void {
+    const scene = this.scene;
+    if (!scene) return;
+    scene.world.remove(index);
+    scene.crowd.forget(index);
+    scene.effects.clearFollowing(index);
+    if (scene.crowd.selected === index) scene.crowd.selected = -1;
+    this.personAt[index] = undefined;
+  }
+
   private addAgent(scene: Scene, person: Person, at: "scatter" | "gate"): number {
     const topics = person.topics.map(topicIndex);
     const index = scene.world.spawn({ id: person.id, topics, isYou: person.isYou }, at);
@@ -895,10 +978,14 @@ export class CoiiEngine implements EngineApi {
       },
       hitBooth: (sx, sy) => {
         const p = toWorld(sx, sy);
-        return getScene().booths.findIndex((booth) => booth.contains(p.x, p.y));
+        const booth = getScene().booths.findIndex((b) => b.contains(p.x, p.y));
+        if (booth >= 0) return booth;
+        const tent = getScene().plots.tentAt(p.x, p.y);
+        return tent >= 0 ? ADDA_TAP + tent : -1;
       },
       tapBean: (index) => this.tapBean(getScene(), index),
       tapBooth: (topic) => {
+        if (topic >= ADDA_TAP) return this.tapAdda(getScene(), topic - ADDA_TAP);
         const id = TOPICS[topic]?.id;
         if (id) this.tapBooth(id);
       },
@@ -919,14 +1006,61 @@ export class CoiiEngine implements EngineApi {
         const p = toWorld(sx, sy);
         world().dragTo(index, p.x, p.y + 44);
       },
-      release: (index, vx, vy) => {
-        const zoom = getScene().camera.zoom;
-        world().release(index, vx / zoom, vy / zoom);
-      },
+      release: (index, vx, vy) => this.releaseBean(getScene(), index, vx, vy),
       interacted: () => {
         this.follow = -1;
       },
+      ...this.tentGestures(getScene),
     };
+  }
+
+  /** Picking up one of your tents and putting it down somewhere else outside the ring. */
+  private tentGestures(
+    getScene: () => Scene,
+  ): Pick<GestureTarget, "hitTent" | "dragTent" | "dropTent"> {
+    const toWorld = (sx: number, sy: number): { x: number; y: number } =>
+      getScene().camera.screenToWorld(sx, sy);
+    return {
+      hitTent: (sx, sy) => {
+        const p = toWorld(sx, sy);
+        return getScene().plots.myTentAt(p.x, p.y);
+      },
+      dragTent: (slot, sx, sy) => {
+        const p = toWorld(sx, sy);
+        getScene().plots.dragTo(slot, p.x, p.y);
+      },
+      dropTent: (slot, sx, sy) => {
+        const p = toWorld(sx, sy);
+        const moved = getScene().plots.endDrag(slot, p.x, p.y);
+        if (!moved) return;
+        const mode = getScene().layout.mode;
+        for (const listener of this.listeners.addaMoved) listener(moved.addaId, mode, moved.spot);
+      },
+    };
+  }
+
+  /**
+   * Lets go of a grabbed bean. Dropped on one of your tents, it just plops down (no throw) and
+   * the app is told, so it can ask you to wave and add them.
+   */
+  private releaseBean(scene: Scene, index: number, vx: number, vy: number): void {
+    const a = scene.world.agents[index];
+    const person = this.personAt[index];
+    const addaId = a && scene.plots.myGroundAt(a.x, a.y);
+    if (!a || !person || !addaId || a.isYou || a.pinned >= 0) {
+      const zoom = scene.camera.zoom;
+      scene.world.release(index, vx / zoom, vy / zoom);
+      return;
+    }
+    scene.world.release(index, 0, 0);
+    for (const listener of this.listeners.beanDropped) listener(person.id, addaId);
+  }
+
+  private tapAdda(scene: Scene, slot: number): void {
+    const addaId = scene.plots.addaIdAt(slot);
+    if (!addaId) return;
+    this.focusAdda(addaId);
+    for (const listener of this.listeners.addaTap) listener(addaId);
   }
 
   private tapBooth(id: TopicId): void {

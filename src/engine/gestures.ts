@@ -14,6 +14,10 @@ export interface GestureTarget {
   drag(index: number, sx: number, sy: number): void;
   release(index: number, vx: number, vy: number): void;
   interacted(): void;
+  /** Slot of one of your adda tents under the point (it can be picked up), or -1. */
+  hitTent(sx: number, sy: number): number;
+  dragTent(slot: number, sx: number, sy: number): void;
+  dropTent(slot: number, sx: number, sy: number): void;
 }
 
 const LONG_PRESS_MS = 300;
@@ -22,7 +26,7 @@ const TOUCH_SLOP_PX = 9;
 const TAP_MAX_MS = 350;
 const VELOCITY_WINDOW_MS = 100;
 
-type Mode = "idle" | "pressing" | "panning" | "pinching" | "grabbing";
+type Mode = "idle" | "pressing" | "panning" | "pinching" | "grabbing" | "tenting";
 
 interface Sample {
   t: number;
@@ -44,6 +48,8 @@ export class Gestures {
   private lastX = 0;
   private lastY = 0;
   private bean = -1;
+  /** Your tent under the press, which a drag (or long-press on touch) picks up. */
+  private tent = -1;
   private touch = false;
   private longPress: number | undefined;
   private pinchDist = 0;
@@ -109,10 +115,21 @@ export class Gestures {
     this.samples = [{ t: this.startT, x: p.x, y: p.y }];
     this.target.camera.stop();
     this.bean = this.target.hitBean(p.x, p.y, this.touch);
+    this.tent = this.bean >= 0 ? -1 : this.target.hitTent(p.x, p.y);
     if (this.bean >= 0 && this.touch) {
       this.target.hold(this.bean);
       this.longPress = window.setTimeout(() => this.startGrab(), LONG_PRESS_MS);
+    } else if (this.tent >= 0 && this.touch) {
+      this.longPress = window.setTimeout(() => this.startTentDrag(), LONG_PRESS_MS);
     }
+  }
+
+  private startTentDrag(): void {
+    this.longPress = undefined;
+    if (this.mode !== "pressing" || this.tent < 0) return;
+    this.mode = "tenting";
+    this.target.dragTent(this.tent, this.lastX, this.lastY);
+    if ("vibrate" in navigator) navigator.vibrate(12);
   }
 
   private beginPinch(): void {
@@ -153,21 +170,31 @@ export class Gestures {
     if (this.mode === "pressing") this.resolvePress(p.x, p.y);
     if (this.mode === "panning") this.target.camera.panBy(dx, dy);
     if (this.mode === "grabbing") this.target.drag(this.bean, p.x, p.y);
+    if (this.mode === "tenting") this.target.dragTent(this.tent, p.x, p.y);
   };
 
   private resolvePress(x: number, y: number): void {
     const moved = Math.hypot(x - this.startX, y - this.startY);
-    if (!this.touch && this.bean >= 0 && moved > MOUSE_DRAG_PX) {
-      this.mode = "grabbing";
-      this.target.grab(this.bean);
-      this.target.drag(this.bean, x, y);
-      return;
-    }
+    if (!this.touch && moved > MOUSE_DRAG_PX && this.pickUp(x, y)) return;
     if (moved > (this.touch ? TOUCH_SLOP_PX : MOUSE_DRAG_PX)) {
       this.clearLongPress();
       this.releaseHeld();
       this.mode = "panning";
     }
+  }
+
+  /** A mouse drag that starts on a bean grabs it; on one of your tents it moves the tent. */
+  private pickUp(x: number, y: number): boolean {
+    if (this.bean >= 0) {
+      this.mode = "grabbing";
+      this.target.grab(this.bean);
+      this.target.drag(this.bean, x, y);
+      return true;
+    }
+    if (this.tent < 0) return false;
+    this.mode = "tenting";
+    this.target.dragTent(this.tent, x, y);
+    return true;
   }
 
   private movePinch(): void {
@@ -212,7 +239,11 @@ export class Gestures {
       this.target.camera.vx = v.x;
       this.target.camera.vy = v.y;
     } else if (this.mode === "grabbing") {
+      // The last moves can be merged into the pointerup, so drop the bean where it was let go.
+      this.target.drag(this.bean, x, y);
       this.target.release(this.bean, v.x, v.y);
+    } else if (this.mode === "tenting") {
+      this.target.dropTent(this.tent, x, y);
     }
   }
 
@@ -220,6 +251,7 @@ export class Gestures {
     this.pointers.delete(e.pointerId);
     this.clearLongPress();
     if (this.mode === "grabbing") this.target.release(this.bean, 0, 0);
+    else if (this.mode === "tenting") this.target.dropTent(this.tent, this.lastX, this.lastY);
     else this.releaseHeld();
     if (this.pointers.size === 0) this.reset();
   };
@@ -257,6 +289,7 @@ export class Gestures {
     this.mode = "idle";
     this.primary = -1;
     this.bean = -1;
+    this.tent = -1;
     this.samples = [];
   }
 

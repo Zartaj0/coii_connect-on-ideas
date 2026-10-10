@@ -17,9 +17,7 @@ const numberFormat = new Intl.NumberFormat("en-IN");
 function Wordmark() {
   return (
     <h1 className="wordmark">
-      <span className="wordmark__name">
-        <span className="wordmark__gm">gm</span> coii
-      </span>
+      <span className="wordmark__name">coii</span>
       <span className="wordmark__sub">connect on ideas & interests</span>
       <span className="wordmark__tag">Devcon 8</span>
     </h1>

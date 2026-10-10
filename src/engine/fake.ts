@@ -1,5 +1,6 @@
+import type { AddaSpot, PlotMode } from "@/data/adda";
 import type { Person, TopicId } from "@/data/types";
-import type { EngineApi, EngineEvents, EngineStats } from "@/engine/types";
+import type { AddaMapView, EngineApi, EngineEvents, EngineStats } from "@/engine/types";
 
 /** In-memory stand-in for the venue engine, for UI work and tests without WebGL. */
 export class FakeEngine implements EngineApi {
@@ -8,6 +9,9 @@ export class FakeEngine implements EngineApi {
   private readonly listeners: { [K in keyof EngineEvents]: Set<EngineEvents[K]> } = {
     select: new Set(),
     boothTap: new Set(),
+    addaTap: new Set(),
+    addaMoved: new Set(),
+    beanDropped: new Set(),
     ready: new Set(),
   };
 
@@ -69,6 +73,15 @@ export class FakeEngine implements EngineApi {
   setCrowns(personIds: readonly string[]): void {
     this.log("setCrowns", [...personIds]);
   }
+  setAddas(views: readonly AddaMapView[]): void {
+    this.log("setAddas", views);
+  }
+  focusAdda(addaId: string): void {
+    this.log("focusAdda", addaId);
+  }
+  dropIn(addaId: string, personId: string): void {
+    this.log("dropIn", addaId, personId);
+  }
   setInsets(top: number): void {
     this.log("setInsets", top);
   }
@@ -93,6 +106,18 @@ export class FakeEngine implements EngineApi {
   /** Simulate a tap on a bean in the map. */
   emitSelect(personId: string | null): void {
     for (const listener of this.listeners.select) listener(personId);
+  }
+
+  emitAddaTap(addaId: string): void {
+    for (const listener of this.listeners.addaTap) listener(addaId);
+  }
+
+  emitBeanDropped(personId: string, addaId: string): void {
+    for (const listener of this.listeners.beanDropped) listener(personId, addaId);
+  }
+
+  emitAddaMoved(addaId: string, mode: PlotMode, spot: AddaSpot): void {
+    for (const listener of this.listeners.addaMoved) listener(addaId, mode, spot);
   }
 
   emitBoothTap(topic: TopicId): void {

@@ -1,13 +1,14 @@
 import { useSyncExternalStore } from "react";
 
+import type { AddaInvite, AddaRef, JoinedAdda, MyAdda } from "@/adda/storage";
 import type { IconId, Person, TopicId } from "@/data/types";
 import type { Card } from "@/match/hand";
 import type { Chai } from "@/match/storage";
 
-export type Panel = "none" | "profile" | "booth" | "people" | "meet";
+export type Panel = "none" | "profile" | "booth" | "people" | "meet" | "adda";
 
 /** Centred cards above everything else; the venue keeps moving behind them. */
-export type Overlay = "none" | "about" | "you" | "board";
+export type Overlay = "none" | "about" | "you" | "board" | "share" | "drop" | "invite";
 
 export interface Toast {
   readonly id: number;
@@ -40,6 +41,24 @@ export interface MeetView {
   readonly celebrate: string | null;
 }
 
+/** Your addas (spec: docs/prd/adda.md). Present once you have joined. */
+export interface AddaView {
+  /** Up to three; anyone who said no still shows as invited. */
+  readonly addas: readonly MyAdda[];
+  /** Invites waiting for your answer. */
+  readonly invites: readonly AddaInvite[];
+  /** Other people's addas you are in. */
+  readonly joined: readonly JoinedAdda[];
+  /** A joined adda shown on the map next to yours, or null. */
+  readonly viewing: AddaRef | null;
+}
+
+/** You dropped someone on one of your tents before waving at and adding them. */
+export interface AddaDrop {
+  readonly personId: string;
+  readonly addaId: string;
+}
+
 /** Live wave points on top of what is derived from people and Meet (see `pointsReader`). */
 export interface PointsState {
   /** Waves the demo crowd gave each other while you watched, by person id. */
@@ -68,6 +87,12 @@ export interface AppState {
   readonly toasts: readonly Toast[];
   /** Null until you join. */
   readonly meet: MeetView | null;
+  /** Null until you join. */
+  readonly adda: AddaView | null;
+  /** What the "wave + add first" popup is about. */
+  readonly addaDrop: AddaDrop | null;
+  /** Which of your addas the share card shows. */
+  readonly shareAddaId: string | null;
   /** "My tribe" map mode: everyone sharing your topics glows, the rest dim. */
   readonly tribe: boolean;
   readonly points: PointsState;

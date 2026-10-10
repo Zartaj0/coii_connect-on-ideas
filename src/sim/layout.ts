@@ -9,6 +9,16 @@ export const BOOTH_OBSTACLE_R = 160;
 export const PLAZA_OBSTACLE_R = 78;
 /** Average floor area one standing bean needs. */
 export const SPOT_SPACING = 28;
+/** The adda tent's art fits inside this circle. */
+export const ADDA_OBSTACLE_R = 92;
+/** Spots in the adda plot: up to 30 members plus the owner. */
+export const ADDA_SPOTS = 31;
+/** Adda members get more room than a busy booth, so the crowd visibly spreads as it grows. */
+export const ADDA_SPACING = 52;
+/** Half the gate's width, posts and garland included. */
+const GATE_HALF = 200;
+/** Adda plots on the map: your three addas plus one you joined and are viewing. */
+export const ADDA_SLOTS = 4;
 
 const ZONE_INSET = 16;
 const MARGIN = 70;
@@ -17,8 +27,8 @@ const STREET_HALF = 95;
 const WORLD_PAD = 140;
 
 export interface Zone {
-  readonly kind: "booth" | "plaza";
-  /** Topic index for booths, -1 for the plaza. */
+  readonly kind: "booth" | "plaza" | "adda";
+  /** Topic index for booths, -1 for the plaza and the adda plot. */
   readonly topic: number;
   readonly x: number;
   readonly y: number;
@@ -27,13 +37,26 @@ export interface Zone {
   readonly obstacle: Circle;
 }
 
+export interface Rect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
 export interface VenueLayout {
   readonly mode: LayoutMode;
   readonly width: number;
   readonly height: number;
-  /** Booth zones first (indexed by topic), the plaza last. */
+  /** Booth zones first (indexed by topic), then the plaza, then the adda plots. */
   readonly zones: readonly Zone[];
   readonly plazaIndex: number;
+  /** Zone indexes of the adda plots, in slot order. */
+  readonly addaSlots: readonly number[];
+  /** Where each adda plot starts (same order as `addaSlots`). */
+  readonly defaultPlots: readonly Point[];
+  /** The venue without the free band around it: what the camera frames by default. */
+  readonly fit: Rect;
   readonly gate: Point;
 }
 
@@ -180,9 +203,109 @@ function portraitBooths(
   return { booths, plaza: { x: 0, y: plazaY, r: plazaR } };
 }
 
+/** Outer radius of an adda plot at full size. */
+export function addaOuterRadius(): number {
+  return Math.sqrt(
+    (ADDA_OBSTACLE_R + ZONE_INSET) ** 2 + (ADDA_SPOTS * ADDA_SPACING * ADDA_SPACING) / Math.PI,
+  );
+}
+
+function cross(o: Point, a: Point, b: Point): number {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+/** One half of a monotone-chain hull: the points that keep turning left. */
+function hullHalf(list: readonly Point[]): Point[] {
+  const out: Point[] = [];
+  for (const p of list) {
+    while (
+      out.length >= 2 &&
+      cross(out[out.length - 2] as Point, out[out.length - 1] as Point, p) <= 0
+    )
+      out.pop();
+    out.push(p);
+  }
+  out.pop();
+  return out;
+}
+
+/** Monotone-chain convex hull, counter-clockwise. */
+function convexHull(points: readonly Point[]): Point[] {
+  const sorted = points.toSorted((a, b) => a.x - b.x || a.y - b.y);
+  return [...hullHalf(sorted), ...hullHalf(sorted.toReversed())];
+}
+
+function insideHull(hull: readonly Point[], x: number, y: number): boolean {
+  if (hull.length < 3) return false;
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i] as Point;
+    const b = hull[(i + 1) % hull.length] as Point;
+    if ((b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x) < 0) return false;
+  }
+  return true;
+}
+
 /**
- * Lays out 10 booth zones plus the central chai plaza. Landscape rings booths around the plaza;
- * portrait lines them along a market street ("gully") with the plaza mid-street.
+ * Whether an adda plot can sit at (x, y): inside the world, outside the ring of booths (their
+ * convex hull), clear of every booth, the plaza, the gate and the `others` plots.
+ */
+export function plotFits(
+  layout: VenueLayout,
+  x: number,
+  y: number,
+  others: readonly Circle[],
+): boolean {
+  const r = addaOuterRadius();
+  if (x - r < 0 || y - r < 0 || x + r > layout.width || y + r > layout.height) return false;
+  const core = layout.zones.filter((z) => z.kind !== "adda");
+  if (core.some((z) => distance(x, y, z.x, z.y) < z.r1 + r + MARGIN / 2)) return false;
+  if (distance(x, y, layout.gate.x, layout.gate.y) < r + GATE_HALF + MARGIN / 2) return false;
+  if (insideHull(convexHull(core.filter((z) => z.kind === "booth")), x, y)) return false;
+  return others.every((o) => distance(x, y, o.x, o.y) >= o.r + r + 20);
+}
+
+/** Where the four adda plots start: beside the gate first, then around the ring. */
+function defaultPlots(layout: VenueLayout, fit: Rect): Point[] {
+  const r = addaOuterRadius();
+  const gate = layout.gate;
+  const side = GATE_HALF + MARGIN + r;
+  const midY = (fit.y + fit.y + fit.h) / 2;
+  const candidates: Point[] = [
+    { x: gate.x + side, y: gate.y - 40 },
+    { x: gate.x - side, y: gate.y - 40 },
+    { x: fit.x + fit.w + r, y: midY },
+    { x: fit.x - r, y: midY },
+    { x: fit.x + fit.w + r, y: fit.y + r },
+    { x: fit.x - r, y: fit.y + r },
+    { x: gate.x + side, y: gate.y + r },
+    { x: gate.x - side, y: gate.y + r },
+  ];
+  const chosen: Point[] = [];
+  for (const c of candidates) {
+    if (chosen.length === ADDA_SLOTS) break;
+    // Nudge down until clear, like the first plot beside the gate.
+    for (let dy = 0; dy < 900; dy += 20) {
+      if (
+        plotFits(
+          layout,
+          c.x,
+          c.y + dy,
+          chosen.map((p) => ({ ...p, r })),
+        )
+      ) {
+        chosen.push({ x: c.x, y: c.y + dy });
+        break;
+      }
+    }
+  }
+  return chosen;
+}
+
+/**
+ * Lays out 10 booth zones plus the central chai plaza and four movable adda plots. Landscape
+ * rings booths around the plaza; portrait lines them along a market street ("gully") with the
+ * plaza mid-street. A band around the venue leaves room to move adda tents anywhere outside
+ * the ring; `fit` is the venue itself, which the camera frames by default.
  */
 export function computeLayout(
   mode: LayoutMode,
@@ -205,10 +328,14 @@ export function computeLayout(
 
   const maxBoothY = Math.max(...booths.map((z) => z.y + z.r));
   const gateLocal = { x: 0, y: maxBoothY + 150 };
-  const minX = Math.min(...booths.map((z) => z.x - z.r), plaza.x - plaza.r) - WORLD_PAD;
-  const maxX = Math.max(...booths.map((z) => z.x + z.r), plaza.x + plaza.r) + WORLD_PAD;
-  const minY = Math.min(...booths.map((z) => z.y - z.r), plaza.y - plaza.r) - WORLD_PAD;
-  const maxY = gateLocal.y + WORLD_PAD;
+  const core = [...booths, plaza];
+  const coreMinX = Math.min(...core.map((z) => z.x - z.r)) - WORLD_PAD;
+  const coreMaxX = Math.max(...core.map((z) => z.x + z.r)) + WORLD_PAD;
+  const coreMinY = Math.min(...core.map((z) => z.y - z.r)) - WORLD_PAD;
+  const coreMaxY = gateLocal.y + WORLD_PAD;
+  const band = 2 * addaOuterRadius() + MARGIN;
+  const minX = coreMinX - band;
+  const minY = coreMinY - band;
 
   const zones: Zone[] = booths.map((z, topic) => ({
     kind: "booth",
@@ -228,13 +355,50 @@ export function computeLayout(
     r1: plaza.r,
     obstacle: { x: plaza.x - minX, y: plaza.y - minY, r: PLAZA_OBSTACLE_R },
   });
-
-  return {
+  const fit: Rect = {
+    x: coreMinX - minX,
+    y: coreMinY - minY,
+    w: coreMaxX - coreMinX,
+    h: coreMaxY - coreMinY,
+  };
+  const base: VenueLayout = {
     mode,
-    width: maxX - minX,
-    height: maxY - minY,
+    width: coreMaxX + band - minX,
+    height: coreMaxY + band - minY,
     zones,
     plazaIndex: zones.length - 1,
+    addaSlots: [],
+    defaultPlots: [],
     gate: { x: gateLocal.x - minX, y: gateLocal.y - minY },
+    fit,
+  };
+  const plots = defaultPlots(base, fit);
+  const addaSlots = plots.map((p) => {
+    zones.push(addaZone(p.x, p.y, false));
+    return zones.length - 1;
+  });
+  return { ...base, zones, addaSlots, defaultPlots: plots, fit: withPlots(fit, plots.slice(0, 2)) };
+}
+
+/** The default view grows to take in the first plots beside the gate, where new tents go up. */
+function withPlots(fit: Rect, plots: readonly Point[]): Rect {
+  const r = addaOuterRadius();
+  const x0 = Math.min(fit.x, ...plots.map((p) => p.x - r));
+  const y0 = Math.min(fit.y, ...plots.map((p) => p.y - r));
+  const x1 = Math.max(fit.x + fit.w, ...plots.map((p) => p.x + r));
+  const y1 = Math.max(fit.y + fit.h, ...plots.map((p) => p.y + r));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** An adda plot; inactive plots have no obstacle, so beans walk straight through them. */
+export function addaZone(x: number, y: number, active: boolean): Zone {
+  return {
+    kind: "adda",
+    topic: -1,
+    x,
+    y,
+    r0: ADDA_OBSTACLE_R + ZONE_INSET,
+    r1: addaOuterRadius(),
+    obstacle: { x, y, r: active ? ADDA_OBSTACLE_R : 0 },
   };
 }

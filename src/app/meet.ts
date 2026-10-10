@@ -55,6 +55,21 @@ export interface MeetActions {
 }
 
 export interface MeetController extends MeetActions {
+  /** You have waved at them (a chai means you have). */
+  hasWaved(personId: string): boolean;
+  /**
+   * They waved at you, e.g. by joining your adda: a chai if you had waved at them, otherwise a
+   * hidden inbound wave. Either way you get a wave point. Chais made here skip the big "Chai's
+   * on!" card: the adda celebrates them itself.
+   */
+  theyWaved(personId: string): void;
+  /** You wave back without using today's allowance (accepting an adda invite). */
+  waveFree(personId: string): WaveResult;
+  /**
+   * A normal wave made while adding someone to an adda: demo people answer the adda invite
+   * instead, so no separate demo wave-back is scheduled.
+   */
+  waveForAdda(personId: string): WaveResult;
   /** Re-reads you and today's hand; call after joining, leaving or at a new day. */
   sync(): void;
   /** Forget everything Meet stored for you (on leaving). */
@@ -101,7 +116,7 @@ function eligibilityFor(save: MeetSave, day: string): Eligibility {
 function viewOf(save: MeetSave, day: string, now: number): MeetView {
   const hand = todayHand(save);
   const chaiIds = new Set(save.chais.map((c) => c.personId));
-  const wavesToday = save.waves.filter((w) => w.day === day).length;
+  const wavesToday = wavesUsed(save, day);
   const wavedAtYou = new Set([...save.inbound, ...chaiIds]).size;
   return {
     day,
@@ -116,6 +131,11 @@ function viewOf(save: MeetSave, day: string, now: number): MeetView {
     wavedAtYou,
     celebrate: save.chais.find((c) => !c.seen)?.personId ?? null,
   };
+}
+
+/** Waves that count against the daily allowance on this Meet day. */
+function wavesUsed(save: MeetSave, day: string): number {
+  return save.waves.filter((w) => w.day === day && !w.free).length;
 }
 
 function withChaiStatus(save: MeetSave, personId: string, status: ChaiStatus): MeetSave {
@@ -252,12 +272,14 @@ class Meet implements MeetController {
     const target = this.personById(personId);
     if (!this.save || !me || !target || target.id === me.id) return "unavailable";
     if (this.save.waves.some((w) => w.to === personId)) return "already";
-    const today = this.day();
-    const wavesToday = this.save.waves.filter((w) => w.day === today).length;
-    return wavesToday >= WAVES_PER_DAY ? "quota" : null;
+    return wavesUsed(this.save, this.day()) >= WAVES_PER_DAY ? "quota" : null;
   }
 
-  readonly wave = (personId: string): WaveResult => {
+  readonly wave = (personId: string): WaveResult => this.sendWave(personId, true);
+
+  readonly waveForAdda = (personId: string): WaveResult => this.sendWave(personId, false);
+
+  private sendWave(personId: string, demoReplies: boolean): WaveResult {
     const blocked = this.waveBlocker(personId);
     const me = this.you();
     const target = this.personById(personId);
@@ -266,19 +288,55 @@ class Meet implements MeetController {
     this.save = { ...this.save, waves: [...this.save.waves, wave] };
     this.engine.greet(personId);
     this.onPoint(personId);
-    if (this.save.inbound.includes(personId)) {
-      this.addChai(personId, target.isDemo);
+    return this.afterWave(me, target, demoReplies);
+  }
+
+  /** A chai if they had already waved at you; otherwise a demo person may wave back later. */
+  private afterWave(me: Person, target: Person, demoReplies: boolean): WaveResult {
+    if (this.save?.inbound.includes(target.id)) {
+      this.addChai(target.id, target.isDemo);
       return "chai";
     }
-    if (target.isDemo) this.scheduleDemoReply(me, target);
+    if (target.isDemo && demoReplies) this.scheduleDemoReply(me, target);
+    this.publish();
+    return "waved";
+  }
+
+  readonly hasWaved = (personId: string): boolean =>
+    this.save?.waves.some((w) => w.to === personId) ?? false;
+
+  readonly theyWaved = (personId: string): void => {
+    const me = this.you();
+    const target = this.personById(personId);
+    if (!this.save || !me || !target) return;
+    this.onPoint(me.id);
+    if (this.hasWaved(personId)) return this.addChai(personId, target.isDemo, true);
+    if (this.save.inbound.includes(personId)) return;
+    this.save = { ...this.save, inbound: [...this.save.inbound, personId] };
+    this.publish();
+  };
+
+  readonly waveFree = (personId: string): WaveResult => {
+    const target = this.personById(personId);
+    const me = this.you();
+    if (!this.save || !me || !target || target.id === me.id) return "unavailable";
+    if (this.hasWaved(personId)) return "already";
+    const wave = { to: personId, at: this.clock.now(), day: this.day(), free: true };
+    this.save = { ...this.save, waves: [...this.save.waves, wave] };
+    this.engine.greet(personId);
+    this.onPoint(personId);
+    if (this.save.inbound.includes(personId)) {
+      this.addChai(personId, target.isDemo, true);
+      return "chai";
+    }
     this.publish();
     return "waved";
   };
 
-  private addChai(personId: string, demo: boolean): void {
+  private addChai(personId: string, demo: boolean, seen = false): void {
     const me = this.you();
     if (!this.save || !me || this.save.chais.some((c) => c.personId === personId)) return;
-    const chai: Chai = { personId, at: this.clock.now(), status: "new", demo, seen: false };
+    const chai: Chai = { personId, at: this.clock.now(), status: "new", demo, seen };
     this.save = { ...this.save, chais: [...this.save.chais, chai] };
     this.publish();
     this.engine.chaiMoment(me.id, personId);

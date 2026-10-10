@@ -48,6 +48,8 @@ export const LOD_ZOOM = 0.25;
 const WHITE = 0xffffff;
 const OPAQUE = 255 << 24;
 const DIMMED = 70 << 24;
+/** Adda invitees who haven't answered: clearly there, clearly not in yet. */
+const GHOST = 110 << 24;
 const SHADOW = ((0.2 * 255) | 0) << 24;
 const RANI = bgr(0xff2e88);
 const MARIGOLD = bgr(0xffb31a);
@@ -260,10 +262,15 @@ export class CrowdRenderer {
     this.writeRobotsBefore(Infinity, view);
   }
 
+  private alphaBits(a: Agent, index: number, dimmed: number): number {
+    if (a.frozen) return GHOST;
+    return this.dimmed(a, index) ? dimmed : OPAQUE;
+  }
+
   private writeBean(index: number, a: Agent, look: BeanLook, alpha: number, time: number): void {
     const pose = computePose(this.pose, a, time + look.seed * 10, this.squash[index] ?? 0);
     const wading = this.inPool(a);
-    const alphaBits = this.dimmed(a, index) ? DIMMED : OPAQUE;
+    const alphaBits = this.alphaBits(a, index, DIMMED);
     const float = wading ? Math.sin(time * 2.4 + look.seed * 6) * 1.2 : 0;
     this.place(
       lerpX(a, alpha),
@@ -325,7 +332,7 @@ export class CrowdRenderer {
   private writeLod(index: number, a: Agent, look: BeanLook, alpha: number): void {
     const bob = a.moving ? Math.abs(Math.sin(a.walkPhase)) * 1.5 : 0;
     const squash = 1 - (this.squash[index] ?? 0) * 0.4;
-    const alphaBits = this.dimmed(a, index) ? 60 << 24 : OPAQUE;
+    const alphaBits = this.alphaBits(a, index, 60 << 24);
     this.place(lerpX(a, alpha), lerpY(a, alpha) - a.z - bob, a.facing, squash, 0);
     this.stamp(look.lod, WHITE + alphaBits);
     if (this.crowns.has(index)) this.writeCrown(lerpX(a, alpha), lerpY(a, alpha) - a.z - 30);

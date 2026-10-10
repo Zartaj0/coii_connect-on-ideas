@@ -128,6 +128,18 @@ describe("controller overlays", () => {
     expect(store.get()).toMatchObject({ overlay: "none", joinTopic: null, panel: "people" });
   });
 
+  it("a join link opens the form, or your profile once you've joined", () => {
+    const fresh = setup();
+    fresh.controller.openJoinLink("privacy");
+    expect(fresh.store.get()).toMatchObject({ overlay: "you", joinTopic: "privacy" });
+
+    const you = person("me", ["ai"], { isYou: true, isDemo: false });
+    const joined = setup(you);
+    joined.controller.openJoinLink("privacy");
+    expect(joined.store.get()).toMatchObject({ overlay: "you", joinTopic: null });
+    expect(joined.store.get().toasts.at(-1)?.text).toContain("already on coii");
+  });
+
   it("About opens over whatever panel is showing and leaves it alone", () => {
     const { store, actions } = setup();
     actions.locate("a");

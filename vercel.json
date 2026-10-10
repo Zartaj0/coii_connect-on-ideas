@@ -4,6 +4,10 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/join", "destination": "/index.html" },
+    { "source": "/join/:topic", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
