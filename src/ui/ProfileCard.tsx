@@ -5,6 +5,7 @@ import { useActions, useApp } from "@/app/context";
 import { pointsReader } from "@/app/points";
 import { topicById } from "@/data/topics";
 import type { Person } from "@/data/types";
+import { AddaButton } from "@/ui/AddaButton";
 import { BeanAvatar } from "@/ui/BeanAvatar";
 import { Glyph, Icon } from "@/ui/Icon";
 import { contactUnlocked, firstName, pointsText } from "@/ui/meet";
@@ -102,6 +103,7 @@ function OthersActions({ person }: { readonly person: Person }) {
   return (
     <div className="profile__actions">
       <WaveButton person={person} />
+      <AddaButton person={person} />
       {unlocked ? (
         <div className="contact-open">
           <ContactLink person={person} kind="telegram" primary />

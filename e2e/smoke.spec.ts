@@ -8,6 +8,8 @@ interface DebugHook {
     focusBooth(topic: string): void;
     resume(): void;
     screenPositionOf(id: string): { x: number; y: number } | null;
+    screenPositionOfAdda(id: string): { x: number; y: number } | null;
+    personAtScreen(x: number, y: number): string | null;
   };
   controller: {
     store: {
@@ -17,9 +19,20 @@ interface DebugHook {
         you: { id: string; avatar: { hair: number } } | null;
         tribe: boolean;
         meet: { hand: { personId: string }[]; waved: string[] } | null;
+        adda: {
+          addas: { id: string; name: string; members: { personId: string; status: string }[] }[];
+          joined: { ownerId: string }[];
+        } | null;
       };
     };
-    actions: { join(input: unknown): { id: string }; locate(id: string): void };
+    actions: {
+      join(input: unknown): { id: string };
+      locate(id: string): void;
+      openPanel(panel: string): void;
+      createAdda(look: { style: string; color: string }, name?: string): string | null;
+      fit(): void;
+      focusAdda(id: string): void;
+    };
   };
 }
 
@@ -63,19 +76,15 @@ test("tapping a person on the map selects them", async ({ page }) => {
     const hook = window.__coii;
     if (!hook) return null;
     hook.engine.pause();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const inMiddle = (x: number, y: number): boolean =>
+      x > w * 0.3 && x < w * 0.7 && y > h * 0.35 && y < h * 0.65;
     for (const person of hook.controller.store.get().people) {
       const p = hook.engine.screenPositionOf(person.id);
-      if (
-        p &&
-        p.x > width * 0.3 &&
-        p.x < width * 0.7 &&
-        p.y > height * 0.35 &&
-        p.y < height * 0.65
-      ) {
-        return { id: person.id, x: p.x, y: p.y };
-      }
+      // Skip beans hidden under a booth label or a bubble: a tap there hits the label.
+      const top = p && inMiddle(p.x, p.y) ? document.elementFromPoint(p.x, p.y) : null;
+      if (p && top?.tagName === "CANVAS") return { id: person.id, ...p };
     }
     return null;
   });
@@ -338,4 +347,188 @@ test("Meet: before joining, the locked hand invites you in", async ({ page }) =>
   const dialog = page.getByRole("dialog", { name: "Join coii" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("group", { name: /What are you here for/ })).toBeVisible();
+});
+
+test("adda: wave, build your tent and add them; they wait see-through in it", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  const before = await page.evaluate(() => window.__coii?.engine.stats().beans ?? 0);
+  const id = await page.evaluate(
+    () => window.__coii?.controller.store.get().people.find((p) => p.isDemo)?.id ?? "",
+  );
+  await page.evaluate((target) => window.__coii?.controller.actions.locate(target), id);
+  const profile = page.locator("article.profile");
+  await expect(profile.getByRole("button", { name: "Add to my adda" })).toHaveCount(0);
+  await profile.getByRole("button", { name: "Wave to connect" }).click();
+  await profile.getByRole("button", { name: "Add to my adda" }).click();
+  await profile.getByRole("radio", { name: "Chhatri" }).check();
+  await profile.getByRole("radio", { name: "Peacock" }).check();
+  await profile.getByRole("button", { name: /Build it and add/ }).click();
+  await expect(profile.getByText(/Invited to Meet's adda · waiting for/)).toBeVisible();
+  const adda = await page.evaluate(() => window.__coii?.controller.store.get().adda);
+  expect(adda?.addas[0]?.members).toEqual([
+    expect.objectContaining({ personId: id, status: "invited" }),
+  ]);
+  // You and the invitee stand in the tent as stand-ins; their real beans stay at their booths.
+  expect(await page.evaluate(() => window.__coii?.engine.stats().beans ?? 0)).toBe(before + 2);
+
+  await page.evaluate(() => window.__coii?.controller.actions.openPanel("adda"));
+  await expect(page.getByRole("heading", { name: "Your addas" })).toBeVisible();
+  await expect(page.locator(".adda-member .adda-pill")).toHaveText("Waiting");
+  expect(errors).toEqual([]);
+});
+
+test("adda: an invite waiting for you can be joined, which makes it a chai", async ({ page }) => {
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  const owner = await page.evaluate(() => {
+    const state = window.__coii?.controller.store.get();
+    const person = state?.people.find((p) => p.isDemo);
+    const you = state?.you;
+    if (!person || !you) return null;
+    const save = {
+      version: 2,
+      personId: you.id,
+      addas: [],
+      invites: [{ ownerId: person.id, addaId: "their-adda", name: "Their adda", at: Date.now() }],
+      joined: [],
+      viewing: null,
+    };
+    localStorage.setItem("coii:adda:v1", JSON.stringify(save));
+    return person.id;
+  });
+  expect(owner).not.toBeNull();
+  await page.reload();
+  await waitForCrowd(page);
+  await page.evaluate(() => window.__coii?.controller.actions.openPanel("adda"));
+  await page.getByRole("button", { name: "Join Their adda" }).click();
+  await expect(page.getByRole("heading", { name: "Addas you're in" })).toBeVisible();
+  const state = await page.evaluate(() => window.__coii?.controller.store.get());
+  expect(state?.adda?.joined.map((j) => j.ownerId)).toEqual([owner]);
+  expect(state?.meet?.waved).toContain(owner);
+});
+
+test("adda: share a picture of everyone who said yes", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  await page.evaluate(() => {
+    const state = window.__coii?.controller.store.get();
+    const you = state?.you;
+    if (!state || !you) return;
+    const ids = state.people
+      .filter((p) => p.isDemo)
+      .slice(0, 3)
+      .map((p) => p.id);
+    const save = {
+      version: 2,
+      personId: you.id,
+      addas: [
+        {
+          id: "crew",
+          name: "Rust crew",
+          look: { style: "tambu", color: "peacock" },
+          members: ids.map((id, i) => ({
+            personId: id,
+            status: i === 2 ? "invited" : "joined",
+            invitedAt: Date.now(),
+          })),
+          declined: [],
+          places: {},
+        },
+      ],
+      invites: [],
+      joined: [],
+      viewing: null,
+    };
+    localStorage.setItem("coii:adda:v1", JSON.stringify(save));
+  });
+  await page.reload();
+  await waitForCrowd(page);
+  await page.evaluate(() => window.__coii?.controller.actions.openPanel("adda"));
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Share Rust crew" });
+  const card = dialog.locator("img.share-card");
+  // You plus the two who said yes; the one still waiting is left out.
+  await expect(card).toHaveAttribute("alt", /^Rust crew: Meet, \S+ and \S+$/);
+  const size = await card.evaluate((img: HTMLImageElement) => [
+    img.naturalWidth,
+    img.naturalHeight,
+  ]);
+  expect(size).toEqual([1350, 1350]);
+  const download = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Download picture" }).click();
+  expect((await download).suggestedFilename()).toBe("rust-crew-coii.png");
+  await Promise.all(
+    ["X", "LinkedIn", "Telegram"].map((site) =>
+      expect(dialog.getByRole("button", { name: `Share on ${site}` })).toBeVisible(),
+    ),
+  );
+  expect(errors).toEqual([]);
+});
+
+test("adda: drag someone onto your tent, wave + add, and they fall in", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  const addaId = await page.evaluate(() => {
+    const actions = window.__coii?.controller.actions;
+    const id = actions?.createAdda({ style: "chhatri", color: "leaf" }, "ZK crew") ?? "";
+    actions?.focusAdda(id);
+    return id;
+  });
+  await page.waitForTimeout(1200);
+  const box = await page.locator("canvas.map-canvas").boundingBox();
+  if (!box) throw new Error("expected the map canvas");
+  // Zoom out around the tent until the nearest booths' crowds are on screen too.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 300);
+  await page.waitForTimeout(400);
+  // Freeze the crowd so the bean under the pointer stays put while we drag it.
+  await page.evaluate(() => window.__coii?.engine.pause());
+  // A demo bean comfortably on screen, below the HUD.
+  // A demo bean that a press at its position really picks up: on the canvas (no label or
+  // bubble on top) and nobody else under the pointer.
+  const beans = await page.evaluate(() => {
+    const hook = window.__coii;
+    const demo = (hook?.controller.store.get().people ?? []).filter((p) => p.isDemo);
+    return demo.map((p) => ({ id: p.id, at: hook?.engine.screenPositionOf(p.id) ?? null }));
+  });
+  const from = await page.evaluate(
+    ({ list, left, top }) => {
+      const engine = window.__coii?.engine;
+      const ok = (id: string, x: number, y: number): boolean =>
+        document.elementFromPoint(left + x, top + y)?.tagName === "CANVAS" &&
+        engine?.personAtScreen(x, y) === id;
+      return list.find((b) => b.at !== null && ok(b.id, b.at.x, b.at.y))?.at ?? null;
+    },
+    { list: beans, left: box.x, top: box.y },
+  );
+  const to = await page.evaluate((id) => window.__coii?.engine.screenPositionOfAdda(id), addaId);
+  if (!from || !to) throw new Error("expected a bean and the tent on screen");
+  await page.mouse.move(box.x + from.x, box.y + from.y);
+  await page.mouse.down();
+  // Hold first: on touch screens a bean is picked up with a long-press.
+  await page.waitForTimeout(450);
+  await page.mouse.move(box.x + from.x + 12, box.y + from.y + 12, { steps: 3 });
+  await page.mouse.move(box.x + to.x + 20, box.y + to.y, { steps: 20 });
+  await page.mouse.up();
+  await page.evaluate(() => window.__coii?.engine.resume());
+
+  const popup = page.getByRole("dialog", { name: /^Wave \+ add .+ first$/ });
+  await expect(popup).toBeVisible();
+  await popup.getByRole("button", { name: "Wave + add" }).click();
+  await expect(popup).toBeHidden();
+  const members = await page.evaluate(
+    () => window.__coii?.controller.store.get().adda?.addas[0]?.members ?? [],
+  );
+  expect(members).toEqual([expect.objectContaining({ status: "invited" })]);
+  const waved = await page.evaluate(() => window.__coii?.controller.store.get().meet?.waved ?? []);
+  expect(waved).toContain(members[0]?.personId);
+  expect(errors).toEqual([]);
 });

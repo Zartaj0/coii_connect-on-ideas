@@ -24,6 +24,8 @@ export interface Wave {
   readonly to: string;
   readonly at: number;
   readonly day: string;
+  /** Sent by accepting an adda invite: it never counts against the daily limit. */
+  readonly free?: boolean;
 }
 
 export interface Skip {

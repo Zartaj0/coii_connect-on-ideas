@@ -57,7 +57,8 @@ export type IconId =
   | "handshake"
   | "speech_balloon"
   | "trophy"
-  | "crown";
+  | "crown"
+  | "circus_tent";
 
 export interface Topic {
   readonly id: TopicId;

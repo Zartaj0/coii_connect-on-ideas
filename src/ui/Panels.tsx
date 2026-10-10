@@ -5,9 +5,12 @@ import { useActions, useApp } from "@/app/context";
 import type { Panel } from "@/app/store";
 import { topicById } from "@/data/topics";
 import type { TopicId } from "@/data/types";
+import { addaBadgeCount } from "@/ui/adda";
+import { AddaPanel } from "@/ui/AddaPanel";
 import { BoothPanel } from "@/ui/BoothPanel";
 import { usePresence } from "@/ui/hooks";
 import { meetTabLabel } from "@/ui/meet";
+import type { MeetBadge } from "@/ui/meet";
 import { BadgeMark, useMeetBadge } from "@/ui/MeetBadge";
 import { MeetPanel } from "@/ui/MeetPanel";
 import type { PanelChrome } from "@/ui/PanelChrome";
@@ -29,7 +32,11 @@ export interface QueryState {
   readonly onQuery: (query: PeopleQuery) => void;
 }
 
-type ReturnTo = "booth" | "people" | "meet" | null;
+type ReturnTo = "booth" | "people" | "meet" | "adda" | null;
+
+function isList(panel: Panel): panel is "booth" | "people" | "meet" | "adda" {
+  return panel === "booth" || panel === "people" || panel === "meet" || panel === "adda";
+}
 
 /** The list panel a profile was opened from, so it can offer a way back. */
 export function useReturnTo(panel: Panel): ReturnTo {
@@ -41,7 +48,7 @@ export function useReturnTo(panel: Panel): ReturnTo {
     const from = state.panel;
     let returnTo: ReturnTo = null;
     if (panel === "profile") {
-      returnTo = from === "booth" || from === "people" || from === "meet" ? from : null;
+      returnTo = isList(from) ? from : null;
     }
     setState({ panel, returnTo });
   }
@@ -83,6 +90,8 @@ export function PanelContent({
       return <PeopleList chrome={chrome} query={query.query} onQuery={query.onQuery} />;
     case "meet":
       return <MeetPanel chrome={chrome} />;
+    case "adda":
+      return <AddaPanel chrome={chrome} />;
   }
 }
 
@@ -91,6 +100,7 @@ const SHEET: Record<PanelView["panel"], { size: SheetSize; modal: boolean; label
   booth: { size: "peek", modal: false, label: "Booth" },
   people: { size: "tall", modal: true, label: "People" },
   meet: { size: "tall", modal: true, label: "Meet" },
+  adda: { size: "tall", modal: true, label: "Adda" },
 };
 
 function backTo(
@@ -100,6 +110,7 @@ function backTo(
 ): PanelChrome["back"] {
   if (returnTo === "people") return { label: "People", onBack: () => open("people") };
   if (returnTo === "meet") return { label: "Meet", onBack: () => open("meet") };
+  if (returnTo === "adda") return { label: "Adda", onBack: () => open("adda") };
   if (returnTo === "booth" && topic) {
     return { label: topicById(topic).short, onBack: () => open("booth") };
   }
@@ -147,12 +158,12 @@ export function PhoneSheets({
   ));
 }
 
-type DeskTab = "people" | "meet";
+type DeskTab = "people" | "meet" | "adda";
 
-const DESK_TABS: readonly DeskTab[] = ["people", "meet"];
+const DESK_TABS: readonly DeskTab[] = ["people", "meet", "adda"];
 
 function isDeskTab(panel: Panel): panel is DeskTab {
-  return panel === "people" || panel === "meet";
+  return panel === "people" || panel === "meet" || panel === "adda";
 }
 
 /** The People/Meet tab to show; remembers the last one while a profile or booth is open. */
@@ -166,8 +177,40 @@ function detailOf(view: PanelView | null): PanelView | null {
   return view && (view.panel === "profile" || view.panel === "booth") ? view : null;
 }
 
+const TAB_NAMES: Readonly<Record<DeskTab, string>> = {
+  people: "People",
+  meet: "Meet",
+  adda: "Adda",
+};
+
 function tabName(tab: DeskTab): string {
-  return tab === "people" ? "People" : "Meet";
+  return TAB_NAMES[tab];
+}
+
+/** Accessible name for the Adda tab, with invites waiting if any. */
+export function addaTabLabel(invites: number): string | undefined {
+  if (invites === 0) return undefined;
+  return `Adda, ${invites} ${invites === 1 ? "invite" : "invites"} for you`;
+}
+
+function tabLabel(tab: DeskTab, meetLabel: string, invites: number): string | undefined {
+  if (tab === "meet") return meetLabel;
+  return tab === "adda" ? addaTabLabel(invites) : undefined;
+}
+
+/** Badge mark per tab: Meet's own, or the invite count on Adda. */
+function TabBadge({
+  tab,
+  meet,
+  invites,
+}: {
+  readonly tab: DeskTab;
+  readonly meet: MeetBadge;
+  readonly invites: number;
+}) {
+  if (tab === "meet") return <BadgeMark badge={meet} />;
+  if (tab === "adda" && invites > 0) return <BadgeMark badge={{ kind: "count", count: invites }} />;
+  return null;
 }
 
 /** Back button for a desktop detail view: to the list it came from, else to the current tab. */
@@ -189,6 +232,7 @@ function useDeskChrome(detail: PanelView | null, tab: DeskTab): PanelChrome {
 function SideTabs({ tab, detail }: { readonly tab: DeskTab; readonly detail: boolean }) {
   const actions = useActions();
   const badge = useMeetBadge();
+  const invites = useApp((s) => addaBadgeCount(s.adda));
   const joined = useApp((s) => s.you !== null);
   const youOpen = useApp((s) => s.overlay === "you");
   return (
@@ -199,11 +243,11 @@ function SideTabs({ tab, detail }: { readonly tab: DeskTab; readonly detail: boo
           type="button"
           className="side__tab"
           aria-current={!detail && tab === id ? "page" : undefined}
-          aria-label={id === "meet" ? meetTabLabel(badge) : undefined}
+          aria-label={tabLabel(id, meetTabLabel(badge), invites)}
           onClick={() => actions.openPanel(id)}
         >
           {tabName(id)}
-          {id === "meet" ? <BadgeMark badge={badge} /> : null}
+          <TabBadge tab={id} meet={badge} invites={invites} />
         </button>
       ))}
       <button

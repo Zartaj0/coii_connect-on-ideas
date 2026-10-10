@@ -3,16 +3,18 @@ import type { ReactNode } from "react";
 
 import { useActions, useApp } from "@/app/context";
 import type { Overlay, Panel } from "@/app/store";
+import { addaBadgeCount } from "@/ui/adda";
 import { BeanAvatar } from "@/ui/BeanAvatar";
 import { Icon } from "@/ui/Icon";
 import { meetTabLabel } from "@/ui/meet";
 import { BadgeMark, useMeetBadge } from "@/ui/MeetBadge";
+import { addaTabLabel } from "@/ui/Panels";
 
-type Tab = "map" | "meet" | "people" | "join";
+type Tab = "map" | "meet" | "adda" | "people" | "join";
 
 function activeTab(panel: Panel, overlay: Overlay): Tab {
   if (overlay === "you") return "join";
-  if (panel === "people" || panel === "meet") return panel;
+  if (panel === "people" || panel === "meet" || panel === "adda") return panel;
   return "map";
 }
 
@@ -20,7 +22,7 @@ function TabButton(props: {
   readonly active: boolean;
   readonly label: string;
   readonly icon: ReactNode;
-  readonly ariaLabel?: string;
+  readonly ariaLabel?: string | undefined;
   readonly onClick: () => void;
 }) {
   return (
@@ -37,13 +39,14 @@ function TabButton(props: {
   );
 }
 
-/** Phone navigation: Map, Meet, People, and Join / You (which opens your profile overlay). */
+/** Phone navigation: Map, Meet, Adda, People, and Join / You (which opens your profile overlay). */
 export function TabBar() {
   const actions = useActions();
   const panel = useApp((s) => s.panel);
   const overlay = useApp((s) => s.overlay);
   const you = useApp((s) => s.you);
   const badge = useMeetBadge();
+  const invites = useApp((s) => addaBadgeCount(s.adda));
   const tab = activeTab(panel, overlay);
   return (
     <nav className="tabbar" aria-label="Main">
@@ -64,6 +67,18 @@ export function TabBar() {
           </>
         }
         onClick={() => actions.openPanel("meet")}
+      />
+      <TabButton
+        active={tab === "adda"}
+        label="Adda"
+        ariaLabel={addaTabLabel(invites)}
+        icon={
+          <>
+            <Icon id="circus_tent" size={26} />
+            {invites > 0 ? <BadgeMark badge={{ kind: "count", count: invites }} /> : null}
+          </>
+        }
+        onClick={() => actions.openPanel("adda")}
       />
       <TabButton
         active={tab === "people"}

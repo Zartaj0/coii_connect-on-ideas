@@ -8,6 +8,7 @@ import type { EngineApi } from "@/engine/types";
 import { AboutOverlay } from "@/ui/AboutOverlay";
 import { BoardOverlay } from "@/ui/BoardOverlay";
 import { ChaiOverlay } from "@/ui/ChaiCard";
+import { DropAddaOverlay } from "@/ui/DropAddaOverlay";
 import { useHeightVar, useMediaQuery, usePresence } from "@/ui/hooks";
 import { Hud } from "@/ui/Hud";
 import { OpenChaiContext } from "@/ui/meetHooks";
@@ -16,6 +17,7 @@ import { PhoneSheets, SidePanel } from "@/ui/Panels";
 import type { QueryState } from "@/ui/Panels";
 import type { PeopleQuery } from "@/ui/people";
 import { DEFAULT_QUERY } from "@/ui/PeopleList";
+import { ShareAddaOverlay } from "@/ui/ShareAddaOverlay";
 import { TabBar } from "@/ui/TabBar";
 import { Toasts } from "@/ui/Toasts";
 import { YouOverlay } from "@/ui/YouOverlay";
@@ -81,7 +83,7 @@ interface LayoutFlags {
 
 /** Panels that open as a tall phone sheet over most of the map. */
 function isTall(panel: Panel): boolean {
-  return panel === "people" || panel === "meet";
+  return panel === "people" || panel === "meet" || panel === "adda";
 }
 
 function useLayoutFlags(): LayoutFlags {
@@ -135,6 +137,10 @@ function OverlayFor(props: {
       return <YouOverlay {...rest} />;
     case "board":
       return <BoardOverlay {...rest} />;
+    case "share":
+      return <ShareAddaOverlay {...rest} />;
+    case "drop":
+      return <DropAddaOverlay {...rest} />;
   }
 }
 
