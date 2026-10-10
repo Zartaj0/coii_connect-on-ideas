@@ -6,7 +6,9 @@ import { computeLayout, modeForAspect } from "@/sim/layout";
 import type { VenueLayout } from "@/sim/layout";
 
 function assertValid(layout: VenueLayout): void {
-  expect(layout.zones).toHaveLength(11);
+  expect(layout.zones).toHaveLength(12);
+  expect(layout.zones[layout.plazaIndex]?.kind).toBe("plaza");
+  expect(layout.zones[layout.addaIndex]?.kind).toBe("adda");
   for (let i = 0; i < layout.zones.length; i++) {
     const a = layout.zones[i]!;
     expect(a.x - a.r1).toBeGreaterThanOrEqual(0);
@@ -50,6 +52,17 @@ describe("computeLayout", () => {
     const tall = computeLayout("portrait", caps, 60);
     expect(wide.width).toBeGreaterThan(wide.height);
     expect(tall.height).toBeGreaterThan(tall.width);
+  });
+
+  it("puts the adda plot beside the gate, roomy enough for a full crowd", () => {
+    const caps = [300, 150, 200, 160, 180, 120, 100, 100, 90, 70];
+    for (const mode of ["landscape", "portrait"] as const) {
+      const layout = computeLayout(mode, caps, 60);
+      const adda = layout.zones[layout.addaIndex]!;
+      expect(adda.x).toBeGreaterThan(layout.gate.x + 200);
+      expect(Math.abs(adda.y - layout.gate.y)).toBeLessThan(adda.r1 * 3);
+      expect(adda.r1 - adda.r0).toBeGreaterThan(60);
+    }
   });
 
   it("picks portrait for phones held upright", () => {

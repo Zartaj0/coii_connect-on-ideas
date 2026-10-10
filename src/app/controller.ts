@@ -1,3 +1,5 @@
+import { createAdda } from "@/app/adda";
+import type { AddaActions, AddaController } from "@/app/adda";
 import { createMeet, realClock } from "@/app/meet";
 import type { MeetActions, MeetClock, MeetController } from "@/app/meet";
 import { createPoints, loadPoints } from "@/app/points";
@@ -20,7 +22,7 @@ export interface JoinInput {
   readonly avatar: Avatar;
 }
 
-export interface Actions extends MeetActions {
+export interface Actions extends MeetActions, AddaActions {
   selectPerson(id: string | null): void;
   locate(id: string): void;
   openBooth(topic: TopicId): void;
@@ -218,12 +220,18 @@ function mapActions(engine: EngineApi, store: AppStore): MapActions {
   };
 }
 
+/** The game loops that follow you in and out. */
+interface Loops {
+  readonly meet: MeetController;
+  readonly adda: AddaController;
+  readonly points: PointsController;
+}
+
 function youActions(
   engine: EngineApi,
   store: AppStore,
   toasts: ToastActions,
-  meet: MeetController,
-  points: PointsController,
+  { meet, adda, points }: Loops,
 ): Pick<Actions, "join" | "leave"> {
   return {
     join(input) {
@@ -243,6 +251,8 @@ function youActions(
       engine.spawn(person, true);
       meet.forget();
       meet.sync();
+      adda.forget();
+      adda.sync();
       points.refreshCrowns();
       toasts.pushToast(
         saved
@@ -257,6 +267,7 @@ function youActions(
       if (!removeYou(engine, store)) return;
       store.set({ overlay: "none", joinTopic: null });
       meet.forget();
+      adda.forget();
       points.refreshCrowns();
       toasts.pushToast("You left coii. Come back anytime.", "waving_hand", "info");
     },
@@ -273,6 +284,10 @@ function followEngine(engine: EngineApi, store: AppStore): void {
     else if (store.get().panel === "profile")
       store.set({ selectedId: null, panel: "none", framed: false });
     else store.set({ selectedId: null });
+  });
+  engine.on("addaTap", () => {
+    deselect(engine, store);
+    store.set({ panel: "adda", framed: false });
   });
   engine.on("boothTap", (topic) => {
     deselect(engine, store);
@@ -293,6 +308,19 @@ function meetActionsOf(meet: MeetController): MeetActions {
   };
 }
 
+function addaActionsOf(adda: AddaController): AddaActions {
+  return {
+    buildAdda: adda.buildAdda,
+    inviteToAdda: adda.inviteToAdda,
+    removeFromAdda: adda.removeFromAdda,
+    acceptAddaInvite: adda.acceptAddaInvite,
+    declineAddaInvite: adda.declineAddaInvite,
+    leaveAdda: adda.leaveAdda,
+    viewAdda: adda.viewAdda,
+    focusAdda: adda.focusAdda,
+  };
+}
+
 /** Owns app state and keeps the engine in sync with it. UI components only call `actions`. */
 export function createController(engine: EngineApi, options: ControllerOptions): AppController {
   const store = createStore<AppState>({
@@ -307,6 +335,7 @@ export function createController(engine: EngineApi, options: ControllerOptions):
     you: options.you,
     toasts: [],
     meet: null,
+    adda: null,
     tribe: false,
     points: loadPoints(),
     reducedMotion: options.reducedMotion,
@@ -322,15 +351,18 @@ export function createController(engine: EngineApi, options: ControllerOptions):
     clock,
     onPoint: points.bump,
   });
+  const adda = createAdda({ engine, store, meet, pushToast: toasts.pushToast, clock });
   const actions: Actions = {
     ...panelActions(engine, store),
     ...mapActions(engine, store),
-    ...youActions(engine, store, toasts, meet, points),
+    ...youActions(engine, store, toasts, { meet, adda, points }),
     ...toasts,
     ...meetActionsOf(meet),
+    ...addaActionsOf(adda),
   };
   followEngine(engine, store);
   meet.sync();
+  adda.sync();
   points.refreshCrowns();
 
   return {

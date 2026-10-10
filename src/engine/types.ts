@@ -1,9 +1,28 @@
+import type { AddaLook } from "@/data/adda";
 import type { Person, TopicId } from "@/data/types";
+
+export interface AddaMapMember {
+  readonly person: Person;
+  /** Invited but not joined yet: stands still and see-through in the tent. */
+  readonly pending: boolean;
+}
+
+/** The adda tent drawn on the map: yours or one you joined. */
+export interface AddaMapView {
+  readonly ownerId: string;
+  /** Sign text, e.g. "Riya's adda". */
+  readonly label: string;
+  readonly look: AddaLook;
+  /** Everyone in the tent, the owner included. */
+  readonly members: readonly AddaMapMember[];
+}
 
 export interface EngineEvents {
   /** A bean was tapped (person id) or the selection was cleared on the map (null). */
   select: (personId: string | null) => void;
   boothTap: (topic: TopicId) => void;
+  /** The adda tent was tapped. */
+  addaTap: () => void;
   ready: () => void;
 }
 
@@ -44,6 +63,13 @@ export interface EngineApi {
   pointPop(personId: string): void;
   /** The wave-points leaders wear crowns on the map. */
   setCrowns(personIds: readonly string[]): void;
+  /**
+   * Draws this adda's tent with a stand-in bean per member (their real bean stays at its booth);
+   * null clears the plot.
+   */
+  setAdda(view: AddaMapView | null): void;
+  /** Flies the camera to the adda tent. */
+  focusAdda(): void;
   /** Screen pixels at the top of the map covered by UI, so framing keeps content visible. */
   setInsets(top: number): void;
   pause(): void;

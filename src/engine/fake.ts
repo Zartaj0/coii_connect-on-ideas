@@ -1,5 +1,5 @@
 import type { Person, TopicId } from "@/data/types";
-import type { EngineApi, EngineEvents, EngineStats } from "@/engine/types";
+import type { AddaMapView, EngineApi, EngineEvents, EngineStats } from "@/engine/types";
 
 /** In-memory stand-in for the venue engine, for UI work and tests without WebGL. */
 export class FakeEngine implements EngineApi {
@@ -8,6 +8,7 @@ export class FakeEngine implements EngineApi {
   private readonly listeners: { [K in keyof EngineEvents]: Set<EngineEvents[K]> } = {
     select: new Set(),
     boothTap: new Set(),
+    addaTap: new Set(),
     ready: new Set(),
   };
 
@@ -69,6 +70,12 @@ export class FakeEngine implements EngineApi {
   setCrowns(personIds: readonly string[]): void {
     this.log("setCrowns", [...personIds]);
   }
+  setAdda(view: AddaMapView | null): void {
+    this.log("setAdda", view);
+  }
+  focusAdda(): void {
+    this.log("focusAdda");
+  }
   setInsets(top: number): void {
     this.log("setInsets", top);
   }
@@ -93,6 +100,10 @@ export class FakeEngine implements EngineApi {
   /** Simulate a tap on a bean in the map. */
   emitSelect(personId: string | null): void {
     for (const listener of this.listeners.select) listener(personId);
+  }
+
+  emitAddaTap(): void {
+    for (const listener of this.listeners.addaTap) listener();
   }
 
   emitBoothTap(topic: TopicId): void {

@@ -9,6 +9,14 @@ export const BOOTH_OBSTACLE_R = 160;
 export const PLAZA_OBSTACLE_R = 78;
 /** Average floor area one standing bean needs. */
 export const SPOT_SPACING = 28;
+/** The adda tent's art fits inside this circle. */
+export const ADDA_OBSTACLE_R = 92;
+/** Spots in the adda plot: up to 30 members plus the owner. */
+export const ADDA_SPOTS = 31;
+/** Adda members get more room than a busy booth, so the crowd visibly spreads as it grows. */
+export const ADDA_SPACING = 52;
+/** Half the gate's width, posts and garland included. */
+const GATE_HALF = 200;
 
 const ZONE_INSET = 16;
 const MARGIN = 70;
@@ -17,8 +25,8 @@ const STREET_HALF = 95;
 const WORLD_PAD = 140;
 
 export interface Zone {
-  readonly kind: "booth" | "plaza";
-  /** Topic index for booths, -1 for the plaza. */
+  readonly kind: "booth" | "plaza" | "adda";
+  /** Topic index for booths, -1 for the plaza and the adda plot. */
   readonly topic: number;
   readonly x: number;
   readonly y: number;
@@ -31,9 +39,10 @@ export interface VenueLayout {
   readonly mode: LayoutMode;
   readonly width: number;
   readonly height: number;
-  /** Booth zones first (indexed by topic), the plaza last. */
+  /** Booth zones first (indexed by topic), then the plaza, then the adda plot. */
   readonly zones: readonly Zone[];
   readonly plazaIndex: number;
+  readonly addaIndex: number;
   readonly gate: Point;
 }
 
@@ -180,6 +189,26 @@ function portraitBooths(
   return { booths, plaza: { x: 0, y: plazaY, r: plazaR } };
 }
 
+/** Outer radius of the adda plot at full size. */
+export function addaOuterRadius(): number {
+  return Math.sqrt(
+    (ADDA_OBSTACLE_R + ZONE_INSET) ** 2 + (ADDA_SPOTS * ADDA_SPACING * ADDA_SPACING) / Math.PI,
+  );
+}
+
+/**
+ * The adda plot sits just right of the gate, nudged down until it clears every booth and the
+ * plaza. Coordinates are in the same local space as `booths` (before shifting to the origin).
+ */
+function placeAdda(booths: readonly Placed[], plaza: Placed, gateY: number): Placed {
+  const r = addaOuterRadius();
+  const x = GATE_HALF + MARGIN + r;
+  let y = gateY - 40;
+  const clashes = (z: Placed): boolean => distance(x, y, z.x, z.y) < z.r + r + MARGIN;
+  while ([...booths, plaza].some(clashes)) y += 10;
+  return { x, y, r };
+}
+
 /**
  * Lays out 10 booth zones plus the central chai plaza. Landscape rings booths around the plaza;
  * portrait lines them along a market street ("gully") with the plaza mid-street.
@@ -205,10 +234,12 @@ export function computeLayout(
 
   const maxBoothY = Math.max(...booths.map((z) => z.y + z.r));
   const gateLocal = { x: 0, y: maxBoothY + 150 };
-  const minX = Math.min(...booths.map((z) => z.x - z.r), plaza.x - plaza.r) - WORLD_PAD;
-  const maxX = Math.max(...booths.map((z) => z.x + z.r), plaza.x + plaza.r) + WORLD_PAD;
-  const minY = Math.min(...booths.map((z) => z.y - z.r), plaza.y - plaza.r) - WORLD_PAD;
-  const maxY = gateLocal.y + WORLD_PAD;
+  const adda = placeAdda(booths, plaza, gateLocal.y);
+  const all = [...booths, plaza, adda];
+  const minX = Math.min(...all.map((z) => z.x - z.r)) - WORLD_PAD;
+  const maxX = Math.max(...all.map((z) => z.x + z.r)) + WORLD_PAD;
+  const minY = Math.min(...all.map((z) => z.y - z.r)) - WORLD_PAD;
+  const maxY = Math.max(gateLocal.y, adda.y + adda.r) + WORLD_PAD;
 
   const zones: Zone[] = booths.map((z, topic) => ({
     kind: "booth",
@@ -229,12 +260,24 @@ export function computeLayout(
     obstacle: { x: plaza.x - minX, y: plaza.y - minY, r: PLAZA_OBSTACLE_R },
   });
 
+  const addaR0 = ADDA_OBSTACLE_R + ZONE_INSET;
+  zones.push({
+    kind: "adda",
+    topic: -1,
+    x: adda.x - minX,
+    y: adda.y - minY,
+    r0: addaR0,
+    r1: adda.r,
+    obstacle: { x: adda.x - minX, y: adda.y - minY, r: ADDA_OBSTACLE_R },
+  });
+
   return {
     mode,
     width: maxX - minX,
     height: maxY - minY,
     zones,
-    plazaIndex: zones.length - 1,
+    plazaIndex: zones.length - 2,
+    addaIndex: zones.length - 1,
     gate: { x: gateLocal.x - minX, y: gateLocal.y - minY },
   };
 }

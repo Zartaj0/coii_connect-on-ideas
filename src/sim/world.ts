@@ -2,6 +2,7 @@ import { createRng } from "@/data/rng";
 import type { Rng } from "@/data/rng";
 import { segmentHitsCircle, sunflowerSpots } from "@/sim/geometry";
 import { SpatialGrid } from "@/sim/grid";
+import { ADDA_SPOTS } from "@/sim/layout";
 import type { VenueLayout, Zone } from "@/sim/layout";
 
 export const State = {
@@ -35,6 +36,8 @@ export interface AgentSpec {
   /** Booth zone indexes (topic indexes) this person cares about, primary first. */
   readonly topics: readonly number[];
   readonly isYou: boolean;
+  /** Keeps the agent inside this zone for good (adda stand-ins). */
+  readonly pinnedZone?: number;
 }
 
 export class Agent {
@@ -42,6 +45,10 @@ export class Agent {
   id = "";
   topics: number[] = [];
   isYou = false;
+  /** Zone this agent never leaves, or -1 to roam its topics. */
+  pinned = -1;
+  /** Stands still until unfrozen (an adda invite nobody has answered yet). */
+  frozen = false;
   zone = 0;
   spot = -1;
   x = 0;
@@ -120,6 +127,8 @@ export class World {
   reducedMotion: boolean;
   private readonly grid: SpatialGrid;
   private readonly zoneSpots: ZoneSpots[];
+  /** Spots in use per zone, counted from the centre out; the adda plot grows with its crowd. */
+  private readonly spotLimit: number[];
   private readonly free: number[] = [];
   private readonly rng: Rng;
   private chatClock = 0;
@@ -137,12 +146,36 @@ export class World {
     this.reducedMotion = options.reducedMotion ?? false;
     this.grid = new SpatialGrid(32, layout.width, layout.height, 2048);
     this.zoneSpots = layout.zones.map((zone, i) => {
-      const count = Math.max(8, Math.round(options.capacities[i] ?? 40));
+      const wanted = zone.kind === "adda" ? ADDA_SPOTS : (options.capacities[i] ?? 40);
+      const count = Math.max(8, Math.round(wanted));
       return {
         spots: sunflowerSpots(zone.x, zone.y, zone.r0 + 6, zone.r1 - 6, count),
         occupant: new Int32Array(count).fill(-1),
       };
     });
+    this.spotLimit = this.zoneSpots.map((zs) => zs.occupant.length);
+  }
+
+  /** Only the innermost `count` spots of a zone are handed out from now on. */
+  setSpotLimit(zoneIndex: number, count: number): void {
+    const zs = this.zoneSpots[zoneIndex];
+    if (zs) this.spotLimit[zoneIndex] = Math.max(1, Math.min(zs.occupant.length, count));
+  }
+
+  /** Freezes an agent in place (see-through in the tent) or lets it move again with a hop. */
+  setFrozen(index: number, frozen: boolean): void {
+    const a = this.agent(index);
+    if (!a.active || a.frozen === frozen) return;
+    a.frozen = frozen;
+    this.endChat(a);
+    if (a.state !== State.Idle) return;
+    if (frozen) {
+      a.idleKind = IdleKind.Stand;
+      return;
+    }
+    this.toIdle(a, this.rng.range(0.6, 1.4));
+    a.idleKind = IdleKind.Hop;
+    this.emit("arrive", index, a.x, a.y);
   }
 
   get activeCount(): number {
@@ -169,26 +202,32 @@ export class World {
     a.id = spec.id;
     a.topics = [...spec.topics];
     a.isYou = spec.isYou;
+    a.pinned = spec.pinnedZone ?? -1;
     a.speed = this.rng.range(WALK_MIN, WALK_MAX);
     a.facing = this.rng.chance(0.5) ? 1 : -1;
 
-    if (at === "scatter") {
-      a.zone = this.pickZone(a, this.rng.chance(0.04));
-      this.claimSpot(index, a.zone);
-      a.x = a.tx;
-      a.y = a.ty;
-      this.toIdle(a, this.rng.range(0.2, 7));
-    } else {
-      a.x = this.layout.gate.x + this.rng.range(-50, 50);
-      a.y = this.layout.gate.y + this.rng.range(-10, 20);
-      a.zone = a.topics[0] ?? 0;
-      this.claimSpot(index, a.zone);
-      this.route(a);
-      a.state = State.Arriving;
-    }
+    if (at === "scatter") this.placeScattered(index, a);
+    else this.placeAtGate(index, a);
     a.px = a.x;
     a.py = a.y;
     return index;
+  }
+
+  private placeScattered(index: number, a: Agent): void {
+    a.zone = this.pickZone(a, a.pinned < 0 && this.rng.chance(0.04));
+    this.claimSpot(index, a.zone);
+    a.x = a.tx;
+    a.y = a.ty;
+    this.toIdle(a, this.rng.range(0.2, 7));
+  }
+
+  private placeAtGate(index: number, a: Agent): void {
+    a.x = this.layout.gate.x + this.rng.range(-50, 50);
+    a.y = this.layout.gate.y + this.rng.range(-10, 20);
+    a.zone = a.topics[0] ?? 0;
+    this.claimSpot(index, a.zone);
+    this.route(a);
+    a.state = State.Arriving;
   }
 
   remove(index: number): void {
@@ -356,7 +395,9 @@ export class World {
   > = {
     [State.Idle]: (index, a, dt) => {
       a.t -= dt;
-      if (a.t <= 0) this.decideNext(index, a);
+      if (a.t > 0 || a.frozen) return;
+      if (a.pinned >= 0) this.decideInPlace(index, a);
+      else this.decideNext(index, a);
     },
     [State.Chatting]: (index, a, dt) => this.updateChat(index, a, dt),
     [State.Wandering]: (index, a, dt) => this.walk(index, a, dt),
@@ -396,6 +437,12 @@ export class World {
     } else {
       this.toIdle(a, this.idleDuration());
     }
+  }
+
+  /** Pinned agents (adda stand-ins) only stroll around their zone or stand. */
+  private decideInPlace(index: number, a: Agent): void {
+    if (this.rng.next() < 0.5) this.stroll(index, a);
+    else this.toIdle(a, this.idleDuration());
   }
 
   /** A short walk to a free spot near where the person already stands. */
@@ -674,7 +721,7 @@ export class World {
   }
 
   private canChat(a: Agent | undefined): boolean {
-    return !!a && a.active && a.state === State.Idle && a.partner === -1 && a.t > 1.5;
+    return !!a && a.active && !a.frozen && a.state === State.Idle && a.partner === -1 && a.t > 1.5;
   }
 
   private startChat(i: number, j: number): void {
@@ -719,6 +766,7 @@ export class World {
   // ---- zones and spots ---------------------------------------------------------------------
 
   private pickZone(a: Agent, allowPlaza: boolean): number {
+    if (a.pinned >= 0) return a.pinned;
     if (allowPlaza) return this.layout.plazaIndex;
     if (a.topics.length === 1) return a.topics[0] ?? 0;
     const weights = a.topics.map((_, i) => (i === 0 ? 0.55 : 0.45 / (a.topics.length - 1)));
@@ -731,7 +779,7 @@ export class World {
     const zs = this.zoneSpots[zoneIndex];
     const zone = this.layout.zones[zoneIndex];
     if (!zs || !zone) throw new Error(`Zone ${zoneIndex} does not exist`);
-    const spot = this.findFreeSpot(zs, near);
+    const spot = this.findFreeSpot(zs, near, this.spotLimit[zoneIndex] ?? zs.occupant.length);
     a.spot = spot;
     if (spot >= 0) {
       zs.occupant[spot] = index;
@@ -746,10 +794,10 @@ export class World {
   }
 
   /** A few random probes; with `near`, only the last probe may be far away. Returns -1 if full. */
-  private findFreeSpot(zs: ZoneSpots, near: Near | null): number {
+  private findFreeSpot(zs: ZoneSpots, near: Near | null, limit: number): number {
     const attempts = near ? 24 : 10;
     for (let attempt = 0; attempt < attempts; attempt++) {
-      const spot = this.rng.int(zs.occupant.length);
+      const spot = this.rng.int(limit);
       if (zs.occupant[spot] !== -1) continue;
       const lastTry = attempt === attempts - 1;
       if (!near || lastTry || spotDistance(zs, spot, near) <= near.radius) return spot;

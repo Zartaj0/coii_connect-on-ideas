@@ -184,3 +184,39 @@ describe("World", () => {
     expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(40);
   });
 });
+
+function withStandIns(count: number): { world: World; indexes: number[] } {
+  const world = makeWorld("landscape", 200);
+  const zone = world.layout.addaIndex;
+  world.setSpotLimit(zone, count + 4);
+  const indexes = Array.from({ length: count }, (_, i) =>
+    world.spawn({ id: `adda:${i}`, topics: [i % 10], isYou: false, pinnedZone: zone }, "scatter"),
+  );
+  return { world, indexes };
+}
+
+describe("adda stand-ins", () => {
+  it("never leave the adda plot, however long they wander", () => {
+    const { world, indexes } = withStandIns(12);
+    const zone = world.layout.zones[world.layout.addaIndex]!;
+    run(world, 60);
+    for (const index of indexes) {
+      const a = world.agent(index);
+      expect(Math.hypot(a.x - zone.x, a.y - zone.y)).toBeLessThanOrEqual(zone.r1 + 20);
+    }
+    expectInsideWorldAndOutsideObstacles(world);
+  });
+
+  it("frozen ones stand still until they are let go, then move again", () => {
+    const { world, indexes } = withStandIns(6);
+    for (const index of indexes) world.setFrozen(index, true);
+    run(world, 1);
+    const before = indexes.map((i) => [world.agent(i).x, world.agent(i).y]);
+    run(world, 30);
+    expect(indexes.map((i) => [world.agent(i).x, world.agent(i).y])).toEqual(before);
+    for (const index of indexes) world.setFrozen(index, false);
+    run(world, 30);
+    const after = indexes.map((i) => [world.agent(i).x, world.agent(i).y]);
+    expect(after).not.toEqual(before);
+  });
+});

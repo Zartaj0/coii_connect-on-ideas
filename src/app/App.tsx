@@ -81,7 +81,7 @@ interface LayoutFlags {
 
 /** Panels that open as a tall phone sheet over most of the map. */
 function isTall(panel: Panel): boolean {
-  return panel === "people" || panel === "meet";
+  return panel === "people" || panel === "meet" || panel === "adda";
 }
 
 function useLayoutFlags(): LayoutFlags {

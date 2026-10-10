@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from "react";
 
+import type { AddaInvite, AddaMember, JoinedAdda } from "@/adda/storage";
+import type { AddaLook } from "@/data/adda";
 import type { IconId, Person, TopicId } from "@/data/types";
 import type { Card } from "@/match/hand";
 import type { Chai } from "@/match/storage";
 
-export type Panel = "none" | "profile" | "booth" | "people" | "meet";
+export type Panel = "none" | "profile" | "booth" | "people" | "meet" | "adda";
 
 /** Centred cards above everything else; the venue keeps moving behind them. */
 export type Overlay = "none" | "about" | "you" | "board";
@@ -40,6 +42,20 @@ export interface MeetView {
   readonly celebrate: string | null;
 }
 
+/** Your adda (spec: docs/prd/adda.md). Present once you have joined. */
+export interface AddaView {
+  /** Null until you build your adda. */
+  readonly look: AddaLook | null;
+  /** People you invited; anyone who said no still shows as invited. */
+  readonly members: readonly AddaMember[];
+  /** Invites waiting for your answer. */
+  readonly invites: readonly AddaInvite[];
+  /** Other people's addas you are in. */
+  readonly joined: readonly JoinedAdda[];
+  /** Owner whose tent is on the map; null shows yours. */
+  readonly viewing: string | null;
+}
+
 /** Live wave points on top of what is derived from people and Meet (see `pointsReader`). */
 export interface PointsState {
   /** Waves the demo crowd gave each other while you watched, by person id. */
@@ -68,6 +84,8 @@ export interface AppState {
   readonly toasts: readonly Toast[];
   /** Null until you join. */
   readonly meet: MeetView | null;
+  /** Null until you join. */
+  readonly adda: AddaView | null;
   /** "My tribe" map mode: everyone sharing your topics glows, the rest dim. */
   readonly tribe: boolean;
   readonly points: PointsState;
