@@ -15,49 +15,19 @@ interface Feature {
 
 const FEATURES: readonly Feature[] = [
   {
-    icon: "light_bulb",
-    title: "Explore ideas, not logos",
-    text: "Every booth is a topic: AI agents, DeFi, privacy and more. The busier the booth, the hotter the idea. Tap one to see who hangs out there.",
+    icon: "handshake",
+    title: "Create your own adda",
+    text: "Build your adda: the group of people (and frens) you want to meet at Devcon\u00a08.",
   },
   {
     icon: "waving_hand",
-    title: "Tap anyone",
-    text: "Every bean is a person. Tap one to see what they're building, what they're here for, and how to reach them on Telegram or X.",
+    title: "Wave and earn wave points",
+    text: "To connect with someone, you wave first. When someone waves at you, you earn a wave point. The more wave points, the higher you rank on the coii leaderboard, so you're popular before the event even starts.",
   },
   {
     icon: "sparkles",
-    title: "Get today's 3",
-    text: "Every morning at 6 AM (Mumbai time), Meet deals you three people worth meeting today, with the reasons why. Flip, wave or skip.",
-  },
-  {
-    icon: "hot_beverage",
-    title: "Wave to connect",
-    text: "Waving gives them a wave point and shows you their Telegram and X. They only learn it was you if they wave back, and then it's Chai's on!",
-  },
-  {
-    icon: "trophy",
-    title: "Collect wave points",
-    text: "Every person who waves at you is a point. Catchy one-liners pop up over your bean and get you noticed. Watch the live board.",
-  },
-  {
-    icon: "dizzy",
-    title: "Play with the crowd",
-    text: "Grab a bean (long-press on a phone) and fling it. They dust themselves off and run back to their booth.",
-  },
-];
-
-const STEPS: readonly { readonly title: string; readonly text: string }[] = [
-  {
-    title: "Join in a minute",
-    text: "Your name, a Telegram or X handle, and 1 to 3 topics. Your bean walks in through the gate.",
-  },
-  {
-    title: "Meet by ideas",
-    text: "Read the one-liners, flip today's 3, wave at whoever makes you curious.",
-  },
-  {
-    title: "Take it offline",
-    text: "A wave back turns into chai at the venue. That's the whole point.",
+    title: "coii recommends your matches",
+    text: "Every day, coii recommends people you should connect with, matched on ideas.",
   },
 ];
 
@@ -98,13 +68,15 @@ function Thesis() {
   return (
     <section className="about__thesis" aria-label="Why coii">
       <p className="about__lead">
-        Conferences are full of people you'd love to meet, and you walk right past most of them.
+        Plan & connect with people that value your interests. Make the most of Devcon&nbsp;8.
       </p>
-      <p>
-        Badges show logos and job titles. They don't say what someone actually cares about. coii
-        turns Devcon into a live map of ideas: every booth is a topic, and every little bean is a
-        person who cares about it. Walk up to an idea and your people are standing right there.
-      </p>
+      <p>Don't waste your time and social energy at an event (especially for nerds).</p>
+      <p>coii helps you:</p>
+      <ul className="about__helps">
+        <li>Plan and strategize beforehand who you want to meet</li>
+        <li>Connect with people who share your ideas and interests</li>
+        <li>Make friends</li>
+      </ul>
     </section>
   );
 }
@@ -127,25 +99,6 @@ function Features() {
           </li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-function HowItWorks() {
-  const headingId = useId();
-  return (
-    <section aria-labelledby={headingId}>
-      <h3 id={headingId} className="about__h">
-        How it works
-      </h3>
-      <ol className="about__steps">
-        {STEPS.map((step) => (
-          <li key={step.title} className="about__step">
-            <h4>{step.title}</h4>
-            <p>{step.text}</p>
-          </li>
-        ))}
-      </ol>
     </section>
   );
 }
@@ -176,13 +129,7 @@ function Footer({ onClose }: { readonly onClose: () => void }) {
   const joined = useApp((s) => s.you !== null);
   return (
     <footer className="about__footer">
-      <p className="about__event">
-        <strong>Built for Devcon 8</strong> · Jio World Centre, Mumbai · 3–6 Nov 2026
-      </p>
-      <p className="about__fine">
-        An independent project by attendees, not run by the Devcon team. The crowd you see now is a
-        demo: names and handles are made up until sign-ups open.
-      </p>
+      <p className="about__event">Built for Devcon 8</p>
       <div className="about__ctas">
         {joined ? (
           <button
@@ -210,6 +157,10 @@ function Footer({ onClose }: { readonly onClose: () => void }) {
           Explore the map
         </button>
       </div>
+      <p className="about__love">
+        <strong>With love, from Decipher Club</strong>
+        <Icon id="red_heart" size={20} />
+      </p>
     </footer>
   );
 }
@@ -230,7 +181,6 @@ export function AboutOverlay({
         <div className="about__body">
           <Thesis />
           <Features />
-          <HowItWorks />
           <Promises />
           <Footer onClose={onClose} />
         </div>
