@@ -1,4 +1,4 @@
--- coii backend, part 5: adda, your crew's tent for Devcon.
+-- coii backend, part 5: adda, up to three crews per person, each in a tent on the map.
 -- Spec: docs/prd/adda.md.
 
 -- ---- tables -----------------------------------------------------------------------------------
@@ -6,25 +6,30 @@
 -- Waves sent by accepting an adda invite are free: they never use the daily allowance.
 alter table private.waves add column free boolean not null default false;
 
--- One adda per person; how its tent looks on the map.
+-- Up to three addas per person: a name, how the tent looks, and where its owner put it on
+-- each map layout ({"landscape": {"x": 0.7, "y": 0.9}}, as fractions of the world).
 create table private.addas (
-  owner_id   uuid primary key references private.people (id) on delete cascade,
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references private.people (id) on delete cascade,
+  name       text not null check (char_length(name) between 1 and 24),
   style      text not null check (style in ('shamiana', 'tambu', 'chhatri')),
   color      text not null check (color in ('rani', 'marigold', 'peacock', 'leaf', 'violet', 'chai')),
+  places     jsonb not null default '{}' check (jsonb_typeof(places) = 'object'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+create index addas_owner on private.addas (owner_id);
+
 -- Who is in (or invited to) which adda. A declined invite stays as 'declined' so the owner keeps
 -- seeing "invited": a no is never signalled.
 create table private.adda_members (
-  owner_id    uuid not null references private.addas (owner_id) on delete cascade,
+  adda_id     uuid not null references private.addas (id) on delete cascade,
   member_id   uuid not null references private.people (id) on delete cascade,
   status      text not null default 'invited' check (status in ('invited', 'joined', 'declined')),
   invited_at  timestamptz not null default now(),
   answered_at timestamptz,
-  primary key (owner_id, member_id),
-  check (owner_id <> member_id)
+  primary key (adda_id, member_id)
 );
 
 create index adda_members_member on private.adda_members (member_id);
@@ -71,9 +76,11 @@ create function private.on_block_insert() returns trigger
 language plpgsql security definer set search_path = ''
 as $$
 begin
-  delete from private.adda_members
-   where (owner_id = new.blocker_id and member_id = new.blocked_id)
-      or (owner_id = new.blocked_id and member_id = new.blocker_id);
+  delete from private.adda_members m
+   using private.addas a
+   where a.id = m.adda_id
+     and ((a.owner_id = new.blocker_id and m.member_id = new.blocked_id)
+       or (a.owner_id = new.blocked_id and m.member_id = new.blocker_id));
   return null;
 end;
 $$;
@@ -106,14 +113,31 @@ as $$
     'pair:' || least(a::text, b::text) || ':' || greatest(a::text, b::text), 0))
 $$;
 
--- ---- your adda ----------------------------------------------------------------------------------
+-- ---- your addas --------------------------------------------------------------------------------
 
--- Builds your adda, or changes how its tent looks.
-create function public.save_adda(style text, color text) returns void
-language plpgsql security definer set search_path = ''
+-- A tidy adda name, or an exception: same cleaning and blocklist as bean names, ≤ 24 characters.
+create function private.adda_name(raw text) returns text
+language plpgsql stable security definer set search_path = ''
 as $$
 declare
-  me private.people := private.caller();
+  cleaned text := private.clean_name(raw);
+begin
+  if cleaned is null or char_length(cleaned) not between 1 and 24 then
+    raise exception 'coii:invalid_name';
+  end if;
+  if private.name_has_link(cleaned) or private.has_mention(cleaned) then
+    raise exception 'coii:name_link_not_allowed';
+  end if;
+  if exists (select 1 from private.blocked_terms where position(term in lower(cleaned)) > 0) then
+    raise exception 'coii:name_blocked';
+  end if;
+  return cleaned;
+end;
+$$;
+
+create function private.check_look(style text, color text) returns void
+language plpgsql immutable set search_path = ''
+as $$
 begin
   if style is null or style not in ('shamiana', 'tambu', 'chhatri') then
     raise exception 'coii:invalid_style';
@@ -121,52 +145,133 @@ begin
   if color is null or color not in ('rani', 'marigold', 'peacock', 'leaf', 'violet', 'chai') then
     raise exception 'coii:invalid_color';
   end if;
-  insert into private.addas (owner_id, style, color) values (me.id, style, color)
-  on conflict (owner_id) do update
-    set style = excluded.style, color = excluded.color, updated_at = now();
 end;
 $$;
 
--- Invites someone you have waved at. Returns 'invited', 'already', 'needs_adda', 'needs_wave',
--- 'full' or 'unavailable'. Unlike a wave, the invite tells them who it's from.
-create function public.invite_to_adda(person uuid) returns text
+-- Your adda with this id, or an exception (someone else's or gone).
+create function private.my_adda(me uuid, adda uuid) returns private.addas
+language plpgsql stable security definer set search_path = ''
+as $$
+declare
+  mine private.addas;
+begin
+  select * into mine from private.addas where id = adda and owner_id = me;
+  if mine.id is null then
+    raise exception 'coii:no_adda';
+  end if;
+  return mine;
+end;
+$$;
+
+-- Builds a new adda (up to three per person) and returns its id.
+create function public.create_adda(name text, style text, color text) returns uuid
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me private.people := private.caller();
+  created uuid;
+begin
+  perform pg_advisory_xact_lock(hashtextextended('adda:' || me.id::text, 0));
+  perform private.check_look(style, color);
+  if (select count(*) from private.addas where owner_id = me.id) >= 3 then
+    raise exception 'coii:too_many_addas';
+  end if;
+  insert into private.addas (owner_id, name, style, color)
+  values (me.id, private.adda_name(name), style, color)
+  returning id into created;
+  return created;
+end;
+$$;
+
+-- Renames an adda and changes how its tent looks.
+create function public.update_adda(adda uuid, name text, style text, color text) returns void
 language plpgsql security definer set search_path = ''
 as $$
 declare
   me private.people := private.caller();
 begin
-  -- One invite at a time per owner, so the 30-person cap holds under concurrent taps.
-  perform pg_advisory_xact_lock(hashtextextended('adda:' || me.id::text, 0));
+  perform private.my_adda(me.id, adda);
+  perform private.check_look(style, color);
+  update private.addas
+     set name = private.adda_name(update_adda.name), style = update_adda.style,
+         color = update_adda.color,
+         updated_at = now()
+   where id = adda;
+end;
+$$;
+
+-- Takes the tent down; its people are let go silently.
+create function public.delete_adda(adda uuid) returns void
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me private.people := private.caller();
+begin
+  delete from private.addas where id = adda and owner_id = me.id;
+end;
+$$;
+
+-- Remembers where you put the tent on one map layout, as fractions of the world (0–1).
+create function public.move_adda(adda uuid, mode text, x real, y real) returns void
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me private.people := private.caller();
+begin
+  perform private.my_adda(me.id, adda);
+  if mode is null or mode not in ('landscape', 'portrait')
+     or x is null or y is null or x not between 0 and 1 or y not between 0 and 1 then
+    raise exception 'coii:invalid_place';
+  end if;
+  update private.addas
+     set places = places || jsonb_build_object(mode, jsonb_build_object('x', x, 'y', y)),
+         updated_at = now()
+   where id = adda;
+end;
+$$;
+
+-- Invites someone you have waved at to one of your addas. Returns 'invited', 'already',
+-- 'needs_adda', 'needs_wave', 'full' or 'unavailable'. The invite tells them who it's from.
+create function public.invite_to_adda(adda uuid, person uuid) returns text
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me private.people := private.caller();
+begin
+  -- One invite at a time per adda, so the 30-person cap holds under concurrent taps.
+  perform pg_advisory_xact_lock(hashtextextended('adda:' || adda::text, 0));
+  if not exists (select 1 from private.addas where id = adda and owner_id = me.id) then
+    return 'needs_adda';
+  end if;
   if not private.reachable(me, person) then
     return 'unavailable';
   end if;
-  if not exists (select 1 from private.addas where owner_id = me.id) then
-    return 'needs_adda';
-  end if;
-  if exists (select 1 from private.adda_members where owner_id = me.id and member_id = person) then
+  if exists (select 1 from private.adda_members where adda_id = adda and member_id = person) then
     return 'already';
   end if;
   if not exists (select 1 from private.waves where from_id = me.id and to_id = person) then
     return 'needs_wave';
   end if;
-  if (select count(*) from private.adda_members where owner_id = me.id) >= 30 then
+  if (select count(*) from private.adda_members where adda_id = adda) >= 30 then
     return 'full';
   end if;
-  insert into private.adda_members (owner_id, member_id) values (me.id, person);
+  insert into private.adda_members (adda_id, member_id) values (adda, person);
   perform private.notify(private.user_of(person), 'adda_invite',
-                         jsonb_build_object('owner_id', me.id));
+                         jsonb_build_object('adda_id', adda, 'owner_id', me.id));
   return 'invited';
 end;
 $$;
 
 -- Takes back an invite or removes a member. Silent.
-create function public.remove_from_adda(person uuid) returns void
+create function public.remove_from_adda(adda uuid, person uuid) returns void
 language plpgsql security definer set search_path = ''
 as $$
 declare
   me private.people := private.caller();
 begin
-  delete from private.adda_members where owner_id = me.id and member_id = person;
+  delete from private.adda_members m
+   using private.addas a
+   where a.id = m.adda_id and a.id = adda and a.owner_id = me.id and m.member_id = person;
 end;
 $$;
 
@@ -189,49 +294,65 @@ $$;
 
 -- Answers an invite: 'joined' (a free wave back, so a chai), 'declined' (never shown to the
 -- owner) or 'unavailable' when there is no open invite.
-create function public.respond_to_adda_invite(owner uuid, accept boolean) returns text
+create function public.respond_to_adda_invite(adda uuid, accept boolean) returns text
 language plpgsql security definer set search_path = ''
 as $$
 declare
   me private.people := private.caller();
+  owner uuid := (select owner_id from private.addas where id = adda);
 begin
+  if owner is null then
+    return 'unavailable';
+  end if;
   perform private.lock_pair(me.id, owner);
   if not exists (select 1 from private.adda_members
-                 where owner_id = owner and member_id = me.id and status = 'invited') then
+                 where adda_id = adda and member_id = me.id and status = 'invited') then
     return 'unavailable';
   end if;
   if not coalesce(accept, false) then
     update private.adda_members set status = 'declined', answered_at = now()
-     where owner_id = owner and member_id = me.id;
+     where adda_id = adda and member_id = me.id;
     return 'declined';
   end if;
   if not private.reachable(me, owner) then
     return 'unavailable';
   end if;
   update private.adda_members set status = 'joined', answered_at = now()
-   where owner_id = owner and member_id = me.id;
+   where adda_id = adda and member_id = me.id;
   perform private.join_wave(me.id, owner);
   perform private.notify(private.user_of(owner), 'adda_joined',
-                         jsonb_build_object('person_id', me.id));
+                         jsonb_build_object('adda_id', adda, 'person_id', me.id));
   return 'joined';
 end;
 $$;
 
 -- Leaves an adda you joined (or drops an invite). Silent.
-create function public.leave_adda(owner uuid) returns void
+create function public.leave_adda(adda uuid) returns void
 language plpgsql security definer set search_path = ''
 as $$
 declare
   me private.people := private.caller();
 begin
-  delete from private.adda_members where owner_id = owner and member_id = me.id;
+  delete from private.adda_members where adda_id = adda and member_id = me.id;
 end;
 $$;
 
 -- ---- state --------------------------------------------------------------------------------------
 
--- Your adda, invites waiting for you and the addas you're in. Only visible people are listed,
--- and a declined invite reads as 'invited'.
+-- Visible members of an adda, for its owner: a declined invite reads as 'invited'.
+create function private.adda_members_json(adda uuid) returns jsonb
+language sql stable security definer set search_path = ''
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', m.member_id,
+           'status', case m.status when 'joined' then 'joined' else 'invited' end,
+           'invited_at', m.invited_at) order by m.invited_at), '[]'::jsonb)
+    from private.adda_members m
+    join private.people p on p.id = m.member_id and p.status = 'visible'
+   where m.adda_id = adda
+$$;
+
+-- Your addas, invites waiting for you and the addas you're in. Only visible people are listed.
 create function public.get_adda_state() returns jsonb
 language plpgsql stable security definer set search_path = ''
 as $$
@@ -239,35 +360,34 @@ declare
   me private.people := private.caller();
 begin
   return jsonb_build_object(
-    'adda', (select jsonb_build_object('style', a.style, 'color', a.color)
-               from private.addas a where a.owner_id = me.id),
-    'members', coalesce((
+    'addas', coalesce((
       select jsonb_agg(jsonb_build_object(
-               'id', m.member_id,
-               'status', case m.status when 'joined' then 'joined' else 'invited' end,
-               'invited_at', m.invited_at) order by m.invited_at)
-        from private.adda_members m
-        join private.people p on p.id = m.member_id and p.status = 'visible'
-       where m.owner_id = me.id), '[]'::jsonb),
+               'id', a.id, 'name', a.name, 'style', a.style, 'color', a.color,
+               'places', a.places, 'members', private.adda_members_json(a.id))
+             order by a.created_at)
+        from private.addas a where a.owner_id = me.id), '[]'::jsonb),
     'invites', coalesce((
-      select jsonb_agg(jsonb_build_object('owner_id', m.owner_id, 'at', m.invited_at)
-                       order by m.invited_at)
+      select jsonb_agg(jsonb_build_object(
+               'adda_id', a.id, 'owner_id', a.owner_id, 'name', a.name, 'at', m.invited_at)
+             order by m.invited_at)
         from private.adda_members m
+        join private.addas a on a.id = m.adda_id
        where m.member_id = me.id and m.status = 'invited'
-         and private.reachable(me, m.owner_id)), '[]'::jsonb),
+         and private.reachable(me, a.owner_id)), '[]'::jsonb),
     'joined', coalesce((
       select jsonb_agg(jsonb_build_object(
-               'owner_id', a.owner_id, 'style', a.style, 'color', a.color,
+               'adda_id', a.id, 'owner_id', a.owner_id, 'name', a.name,
+               'style', a.style, 'color', a.color,
                'member_ids', coalesce((
                  select jsonb_agg(o.member_id order by o.answered_at)
                    from private.adda_members o
                    join private.people op on op.id = o.member_id and op.status = 'visible'
-                  where o.owner_id = a.owner_id and o.status = 'joined' and o.member_id <> me.id),
+                  where o.adda_id = a.id and o.status = 'joined' and o.member_id <> me.id),
                  '[]'::jsonb)))
         from private.adda_members m
-        join private.addas a on a.owner_id = m.owner_id
+        join private.addas a on a.id = m.adda_id
        where m.member_id = me.id and m.status = 'joined'
-         and private.reachable(me, m.owner_id)), '[]'::jsonb)
+         and private.reachable(me, a.owner_id)), '[]'::jsonb)
   );
 end;
 $$;
@@ -314,9 +434,12 @@ grant execute on function public.dismiss_chai(uuid) to authenticated;
 grant execute on function public.unmatch(uuid) to authenticated;
 grant execute on function public.block(uuid) to authenticated;
 grant execute on function public.report(uuid, text) to authenticated;
-grant execute on function public.save_adda(text, text) to authenticated;
-grant execute on function public.invite_to_adda(uuid) to authenticated;
-grant execute on function public.remove_from_adda(uuid) to authenticated;
+grant execute on function public.create_adda(text, text, text) to authenticated;
+grant execute on function public.update_adda(uuid, text, text, text) to authenticated;
+grant execute on function public.delete_adda(uuid) to authenticated;
+grant execute on function public.move_adda(uuid, text, real, real) to authenticated;
+grant execute on function public.invite_to_adda(uuid, uuid) to authenticated;
+grant execute on function public.remove_from_adda(uuid, uuid) to authenticated;
 grant execute on function public.respond_to_adda_invite(uuid, boolean) to authenticated;
 grant execute on function public.leave_adda(uuid) to authenticated;
 grant execute on function public.get_adda_state() to authenticated;

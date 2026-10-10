@@ -61,7 +61,7 @@ const MIN_CELL = 56;
 
 /** The host's face: a bit bigger than the crew's, within sensible bounds. */
 function hostCell(cell: number): number {
-  return Math.min(MAX_CELL * 1.1, Math.max(cell * 1.25, 150));
+  return Math.min(MAX_CELL * 1.1, Math.max(cell * 1.25, 220));
 }
 
 /** `count` angles that split the ellipse into equal arcs, the first at `start`. */

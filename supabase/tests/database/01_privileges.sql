@@ -53,10 +53,11 @@ select is(
 
 select is(
   tests.callable('authenticated'),
-  array['block', 'dismiss_chai', 'get_adda_state', 'get_contacts', 'get_me', 'get_meet_state',
-        'get_venue', 'get_venue_changes', 'invite_to_adda', 'leave_adda', 'remove_from_adda',
-        'report', 'respond_to_adda_invite', 'reveal_card', 'save_adda', 'set_chai_status', 'skip',
-        'unmatch', 'upsert_profile', 'wave'],
+  array['block', 'create_adda', 'delete_adda', 'dismiss_chai', 'get_adda_state', 'get_contacts',
+        'get_me', 'get_meet_state', 'get_venue', 'get_venue_changes', 'invite_to_adda',
+        'leave_adda', 'move_adda', 'remove_from_adda', 'report', 'respond_to_adda_invite',
+        'reveal_card', 'set_chai_status', 'skip', 'unmatch', 'update_adda', 'upsert_profile',
+        'wave'],
   'authenticated can call exactly the §8.1 list plus the adda functions'
 );
 
