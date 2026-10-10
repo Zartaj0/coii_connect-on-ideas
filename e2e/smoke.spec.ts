@@ -17,9 +17,17 @@ interface DebugHook {
         you: { id: string; avatar: { hair: number } } | null;
         tribe: boolean;
         meet: { hand: { personId: string }[]; waved: string[] } | null;
+        adda: {
+          members: { personId: string; status: string }[];
+          joined: { ownerId: string }[];
+        } | null;
       };
     };
-    actions: { join(input: unknown): { id: string }; locate(id: string): void };
+    actions: {
+      join(input: unknown): { id: string };
+      locate(id: string): void;
+      openPanel(panel: string): void;
+    };
   };
 }
 
@@ -338,4 +346,66 @@ test("Meet: before joining, the locked hand invites you in", async ({ page }) =>
   const dialog = page.getByRole("dialog", { name: "Join coii" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("group", { name: /What are you here for/ })).toBeVisible();
+});
+
+test("adda: wave, build your tent and add them; they wait see-through in it", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  const before = await page.evaluate(() => window.__coii?.engine.stats().beans ?? 0);
+  const id = await page.evaluate(
+    () => window.__coii?.controller.store.get().people.find((p) => p.isDemo)?.id ?? "",
+  );
+  await page.evaluate((target) => window.__coii?.controller.actions.locate(target), id);
+  const profile = page.locator("article.profile");
+  await expect(profile.getByRole("button", { name: "Add to my adda" })).toHaveCount(0);
+  await profile.getByRole("button", { name: "Wave to connect" }).click();
+  await profile.getByRole("button", { name: "Add to my adda" }).click();
+  await profile.getByRole("radio", { name: "Chhatri" }).check();
+  await profile.getByRole("radio", { name: "Peacock" }).check();
+  await profile.getByRole("button", { name: /Build it and add/ }).click();
+  await expect(profile.getByText(/Invited to your adda · waiting for/)).toBeVisible();
+  const adda = await page.evaluate(() => window.__coii?.controller.store.get().adda);
+  expect(adda?.members).toEqual([expect.objectContaining({ personId: id, status: "invited" })]);
+  // You and the invitee stand in the tent as stand-ins; their real beans stay at their booths.
+  expect(await page.evaluate(() => window.__coii?.engine.stats().beans ?? 0)).toBe(before + 2);
+
+  await page.evaluate(() => window.__coii?.controller.actions.openPanel("adda"));
+  await expect(page.getByRole("heading", { name: "Your adda" })).toBeVisible();
+  await expect(page.locator(".adda-member .adda-pill")).toHaveText("Waiting");
+  expect(errors).toEqual([]);
+});
+
+test("adda: an invite waiting for you can be joined, which makes it a chai", async ({ page }) => {
+  await page.goto("/?still");
+  await waitForCrowd(page);
+  await joinQuickly(page);
+  const owner = await page.evaluate(() => {
+    const state = window.__coii?.controller.store.get();
+    const person = state?.people.find((p) => p.isDemo);
+    const you = state?.you;
+    if (!person || !you) return null;
+    const save = {
+      version: 1,
+      personId: you.id,
+      look: null,
+      members: [],
+      declined: [],
+      invites: [{ ownerId: person.id, at: Date.now() }],
+      joined: [],
+      viewing: null,
+    };
+    localStorage.setItem("coii:adda:v1", JSON.stringify(save));
+    return person.id;
+  });
+  expect(owner).not.toBeNull();
+  await page.reload();
+  await waitForCrowd(page);
+  await page.evaluate(() => window.__coii?.controller.actions.openPanel("adda"));
+  await page.getByRole("button", { name: /^Join .+'s adda$/ }).click();
+  await expect(page.getByRole("heading", { name: "Addas you're in" })).toBeVisible();
+  const state = await page.evaluate(() => window.__coii?.controller.store.get());
+  expect(state?.adda?.joined.map((j) => j.ownerId)).toEqual([owner]);
+  expect(state?.meet?.waved).toContain(owner);
 });
