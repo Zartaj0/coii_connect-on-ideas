@@ -2,7 +2,7 @@ import { containsLink } from "@/data/handles";
 import { containsMention } from "@/data/oneLinerRules";
 
 /**
- * Adda: your own crew for Devcon, drawn as a little tent on the map (spec: docs/prd/adda.md).
+ * Adda: your own crew for Devcon, drawn as a little tent on the map (spec: docs/prd/iteration_v2_feature.md).
  * Shared by the app, the engine and the UI.
  */
 

@@ -55,7 +55,7 @@ for how to run it.
 - Your own adda: a tent by the gate (3 styles, 6 colours) that grows with its crowd, up to 30
   people. Add people you waved at from their profile; waiting invitees stand see-through in the
   tent, and joining waves back for free, which makes a chai. Adda tab on phone and desktop.
-  Spec: `docs/prd/adda.md`
+  Spec: `docs/prd/iteration_v2_feature.md`
 - Database: `addas` and `adda_members` with RPCs and pgTAP tests; app wiring comes with L2
 
 **Next** (detailed task list with fun and engagement ideas: [TRACKER.md](TRACKER.md))

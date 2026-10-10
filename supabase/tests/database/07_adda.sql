@@ -1,6 +1,6 @@
 -- Adda: up to three per person, names and places, inviting after a wave, answering, the
 -- 30-person cap, privacy of a "no", free waves on joining, leaving, deleting and blocking
--- (docs/prd/adda.md).
+-- (docs/prd/iteration_v2_feature.md).
 begin;
 \ir _helpers.inc
 select plan(40);
