@@ -82,11 +82,13 @@ describe("adda share card", () => {
 
   it("shares the same text everywhere, with the link", () => {
     expect(shareCaption()).toBe(
-      "Check out my adda on coii 🎪 These are the people I'm meeting at Devcon 8, Mumbai: https://coii.decipherclub.com",
+      "Check out my adda on coii 🎪 These are the people I'm meeting at Devcon 8, Mumbai: https://coii.decipherclub.com/join",
     );
     expect(xIntentUrl()).toContain("x.com/intent/post?text=");
     expect(linkedInShareUrl()).toContain("linkedin.com/feed/?shareActive=true&text=");
-    expect(telegramShareUrl()).toContain("t.me/share/url?url=https%3A%2F%2Fcoii.decipherclub.com");
+    expect(telegramShareUrl()).toContain(
+      "t.me/share/url?url=https%3A%2F%2Fcoii.decipherclub.com%2Fjoin",
+    );
     expect(namesText(["Riya Verma", "Mei Lin"])).toBe("Riya and Mei");
     expect(namesText(["A x", "B y", "C z", "D w", "E v"])).toBe("A, B, C and 2 more");
   });

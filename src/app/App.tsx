@@ -11,6 +11,7 @@ import { ChaiOverlay } from "@/ui/ChaiCard";
 import { DropAddaOverlay } from "@/ui/DropAddaOverlay";
 import { useHeightVar, useMediaQuery, usePresence } from "@/ui/hooks";
 import { Hud } from "@/ui/Hud";
+import { InviteOverlay } from "@/ui/InviteOverlay";
 import { OpenChaiContext } from "@/ui/meetHooks";
 import { OVERLAY_EXIT_MS } from "@/ui/Overlay";
 import { PhoneSheets, SidePanel } from "@/ui/Panels";
@@ -141,6 +142,8 @@ function OverlayFor(props: {
       return <ShareAddaOverlay {...rest} />;
     case "drop":
       return <DropAddaOverlay {...rest} />;
+    case "invite":
+      return <InviteOverlay {...rest} />;
   }
 }
 

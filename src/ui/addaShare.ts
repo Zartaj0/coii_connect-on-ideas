@@ -1,8 +1,13 @@
 import type { MyAdda } from "@/adda/storage";
+import { joinUrl, SITE_URL } from "@/app/joinLink";
 import type { Avatar, Person, TopicId } from "@/data/types";
+import { linkedInPostUrl, telegramPostUrl, xPostUrl } from "@/ui/shareLinks";
 
-/** Where people land from a shared card. */
-export const SHARE_URL = "https://coii.decipherclub.com";
+/** The address printed on the card. */
+export const SHARE_URL = SITE_URL;
+
+/** Where people land from a shared adda: straight into the join form. */
+export const SHARE_LINK = joinUrl();
 
 /** One face on the share card. */
 export interface CardFace {
@@ -138,20 +143,19 @@ export const SHARE_TEXT =
 
 /** The post text that goes with the image. */
 export function shareCaption(): string {
-  return `${SHARE_TEXT} ${SHARE_URL}`;
+  return `${SHARE_TEXT} ${SHARE_LINK}`;
 }
 
 export function xIntentUrl(): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(shareCaption())}`;
+  return xPostUrl(SHARE_TEXT, SHARE_LINK);
 }
 
-/** LinkedIn's composer with the text filled in (the link inside it unfurls). */
 export function linkedInShareUrl(): string {
-  return `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareCaption())}`;
+  return linkedInPostUrl(SHARE_TEXT, SHARE_LINK);
 }
 
 export function telegramShareUrl(): string {
-  return `https://t.me/share/url?url=${encodeURIComponent(SHARE_URL)}&text=${encodeURIComponent(SHARE_TEXT)}`;
+  return telegramPostUrl(SHARE_TEXT, SHARE_LINK);
 }
 
 /** File name for the downloaded card, e.g. "rust-crew-coii.png". */

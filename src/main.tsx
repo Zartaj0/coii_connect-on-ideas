@@ -11,6 +11,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "@/app/App";
 import { ControllerContext } from "@/app/context";
 import { createController } from "@/app/controller";
+import { readJoinLink, withoutJoinLink } from "@/app/joinLink";
 import { generateDemo } from "@/data/generateDemo";
 import { loadYou } from "@/data/localUser";
 import { demoSource } from "@/data/source";
@@ -28,6 +29,16 @@ const controller = createController(engine, { people: crowd.people, you, reduced
 if (!params.has("still")) {
   controller.startArrivals(demoSource(crowd.reserve, { minDelayMs: 6000, maxDelayMs: 14000 }));
   controller.startDemoWaves();
+}
+
+const joinLink = readJoinLink(location.pathname, location.search);
+if (joinLink) {
+  controller.openJoinLink(joinLink.topic);
+  history.replaceState(
+    null,
+    "",
+    withoutJoinLink(location.pathname, location.search, location.hash),
+  );
 }
 
 if (import.meta.env.DEV || params.has("debug")) {
