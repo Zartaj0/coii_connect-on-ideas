@@ -1,7 +1,6 @@
 import { CanvasSource, Container, Graphics, Sprite, Text, Texture, TilingSprite } from "pixi.js";
 
 import { TOPICS } from "@/data/topics";
-import { buildMumbaiBackdrop } from "@/engine/mumbaiBackdrop";
 import {
   FLOOR,
   FLOOR_LINE,
@@ -68,8 +67,11 @@ function plazaPetals(g: Graphics, zone: Zone): void {
   }
 }
 
-/** Floor, walkways, zone discs and the plaza rangoli. Static; drawn once. */
-export function buildFloor(layout: VenueLayout): Container {
+/**
+ * Floor, walkways, zone discs and the plaza rangoli. Static; drawn once. `backdrop` (the event's painted
+ * scenery) goes right above the floor tiles, under everything else.
+ */
+export function buildFloor(layout: VenueLayout, backdrop?: Container): Container {
   const floor = new Container({ label: "floor" });
   const tiles = new TilingSprite({
     texture: tileTexture(),
@@ -77,7 +79,7 @@ export function buildFloor(layout: VenueLayout): Container {
     height: layout.height,
   });
   floor.addChild(tiles);
-  floor.addChild(buildMumbaiBackdrop(layout));
+  if (backdrop) floor.addChild(backdrop);
 
   const g = new Graphics();
   const plaza = layout.zones[layout.plazaIndex] as Zone;
